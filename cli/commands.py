@@ -73,7 +73,9 @@ def add(file_path: str, data_dir: str, config: str) -> None:
             total_chunks += len(chunks)
             click.echo(f" {len(chunks)} chunks")
         except Exception as e:
+            click.echo("")  # terminate the progress line
             click.echo(f"Ошибка при обработке {file}: {e}", err=True)
+            continue
 
     click.echo(f"\nДобавлено {total_chunks} chunks из {len(files)} файлов.")
 
@@ -83,10 +85,10 @@ def add(file_path: str, data_dir: str, config: str) -> None:
 @click.option("--data-dir", default="data", help="Storage directory")
 @click.option("--top-k", default=None, type=int, help="Number of results")
 @click.option("--config", default="config.yaml", help="Path to config.yaml")
-def search(query: str, data_dir: str, top_k: int, config: str) -> None:
+def search(query: str, data_dir: str, top_k: int | None, config: str) -> None:
     """Perform semantic search over the documentation."""
     cfg = load_config(config)
-    k = top_k or cfg["top_k_results"]
+    k = top_k if top_k is not None else cfg["top_k_results"]
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
 
