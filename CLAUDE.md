@@ -40,10 +40,10 @@ docling-rag/
 │   ├── commands.py         # Click: init, add, search, list
 │   └── config_loader.py    # Загрузка config.yaml + дефолты
 ├── core/
-│   ├── parser.py           # Docling парсер (PDF, DOCX, MD, TXT)
+│   ├── parser.py           # Docling парсер (PDF, DOCX, MD)
 │   ├── chunker.py          # Chunker: 3200 символов, overlap 320, atomic table/code
 │   ├── embedder.py         # Sentence Transformers all-MiniLM-L6-v2, L2-нормализация
-│   └── storage.py          # Protocol-абстракция (file → pgvector на этапе 2)
+│   └── storage.py          # StorageBackend + DocumentRegistryBackend Protocol-абстракции
 ├── storage/
 │   ├── file_storage.py     # NumPy-хранилище с атомарными записями
 │   └── doc_registry.py     # Метаданные документов (title, topic, tags) → doc_index.json
@@ -69,11 +69,30 @@ docling-rag/
 - **Docling не парсит `.txt`** — для integration tests используй `.md`; поддерживаемые форматы: PDF, DOCX, MD
 - **DocRegistry следует паттерну FileStorage** — тот же `_atomic_save` через `os.replace()`, ключ = `source_file`
 - **CLI mock-паттерн** — в тестах патчить `cli.commands.DocRegistry` вместе с `FileStorage`/`Parser`/`Embedder`
+- **Фильтр поиска: пустой match → пустые результаты** — если `--tag`/`--topic` не совпадает ни с одним документом, `search` возвращает пустой список (не fallback на все документы)
+- **`--topic` сравнивается case-insensitive** — `"Software"` == `"software"` через `.lower()`
 
 ## Non-Goals (MVP)
 
 Не используется в MVP: ChromaDB, FAISS, LangChain, OpenAI API, веб-интерфейс, БД
 
-## Spec
+## Git workflow
 
-`docs/Feature_Specification.md` — полная спецификация, приоритеты P0/P1/P2, этапность
+- **`main`** — стабильная ветка, всегда рабочая
+- **`dev`** — ветка для экспериментальных фич, worktree в `.worktrees/dev/`
+- Новые фичи разрабатываются в `dev`, после стабилизации мёрджатся в `main`
+
+```bash
+# Переключиться в dev worktree
+cd .worktrees/dev
+
+# Список worktrees
+git worktree list
+```
+
+## Docs
+
+Локальная документация в `docs/` (в .gitignore, не публикуется):
+- `docs/Feature_Specification.md` — полная спецификация, P0/P1/P2
+- `docs/ARCHITECTURE.md` — компонентная архитектура, потоки данных, инварианты
+- `docs/FEATURES.md` — краткий фичелист со статусами
