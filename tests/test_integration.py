@@ -38,9 +38,13 @@ def test_full_pipeline_on_real_md(tmp_path):
     result = runner.invoke(main, ["list", "--data-dir", data_dir], catch_exceptions=False)
     assert result.exit_code == 0
     assert "test_doc.md" in result.output
+    assert "chunks" in result.output  # verifies at least one chunk was stored
 
     # Search
     result = runner.invoke(main, ["search", "star schema fact table", "--data-dir", data_dir], catch_exceptions=False)
     assert result.exit_code == 0
     assert "score=" in result.output
     assert "test_doc.md" in result.output
+    # Verify semantic quality: top score should be meaningful
+    top_score = float(result.output.split("score=")[1].split("|")[0].strip())
+    assert top_score > 0.3, f"Expected semantic relevance > 0.3, got {top_score}"
