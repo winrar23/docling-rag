@@ -1,5 +1,5 @@
 # cli/commands.py
-import logging
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -27,7 +27,8 @@ def init(data_dir: str) -> None:
     """Initialize storage."""
     path = Path(data_dir)
     path.mkdir(parents=True, exist_ok=True)
-    (path.parent / "logs").mkdir(exist_ok=True)
+    cfg = load_config()
+    Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
     click.echo(f"Инициализировано хранилище: {path.resolve()}")
 
 
@@ -70,8 +71,8 @@ def add(file_path: str, data_dir: str, config: str) -> None:
             storage.append(chunks, embeddings)
             total_chunks += len(chunks)
             click.echo(f" {len(chunks)} chunks")
-        except (ValueError, FileNotFoundError) as e:
-            click.echo(f" Ошибка: {e}")
+        except Exception as e:
+            click.echo(f"Error processing {file}: {e}", err=True)
 
     click.echo(f"\nДобавлено {total_chunks} chunks из {len(files)} файлов.")
 
@@ -79,17 +80,18 @@ def add(file_path: str, data_dir: str, config: str) -> None:
 @main.command()
 @click.argument("query")
 @click.option("--data-dir", default="data", help="Storage directory")
-@click.option("--top-k", default=5, help="Number of results")
+@click.option("--top-k", default=None, type=int, help="Number of results")
 @click.option("--config", default="config.yaml", help="Path to config.yaml")
 def search(query: str, data_dir: str, top_k: int, config: str) -> None:
     """Perform semantic search over the documentation."""
     cfg = load_config(config)
+    k = top_k or cfg["top_k_results"]
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
 
     try:
         query_emb = embedder.embed([query])[0]
-        results = storage.search(query_embedding=query_emb, top_k=top_k)
+        results = storage.search(query_embedding=query_emb, top_k=k)
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
         return
@@ -109,7 +111,10 @@ def search(query: str, data_dir: str, top_k: int, config: str) -> None:
             f"    {text_preview}..."
         )
 
-    _log_search(cfg["log_file"], query, results[0][1] if results else 0.0)
+    try:
+        _log_search(cfg["log_file"], query, results[0][1] if results else 0.0)
+    except OSError:
+        pass
 
 
 @main.command("list")
@@ -134,8 +139,10 @@ def list_docs(data_dir: str) -> None:
 
 
 def _log_search(log_file: str, query: str, top_score: float) -> None:
-    from datetime import datetime
-    path = Path(log_file)
-    path.parent.mkdir(exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(f"{datetime.now().isoformat()} | score={top_score:.3f} | {query}\n")
+    try:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} | score={top_score:.3f} | {query}\n")
+    except OSError:
+        pass
