@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP реализован. 45 unit-тестов + 1 integration test, все зелёные.
+**Статус:** MVP + document metadata реализованы. 65 unit-тестов + 2 integration tests, все зелёные.
 
 ## Stack (MVP)
 
@@ -21,13 +21,15 @@ docling-rag --help
 # CLI команды
 docling-rag init              # инициализировать хранилище в текущей директории
 docling-rag add <path>        # добавить документ или папку в индекс
+docling-rag add <path> --title "..." --topic "..." --tag arch --tag solid  # с метаданными
 docling-rag search "<query>"  # семантический поиск (топ-5 результатов)
+docling-rag search "<query>" --tag arch --topic "architecture"  # с фильтром
 docling-rag list              # список проиндексированных документов
 # update <file> — P1, не реализован
 
 # Тесты
-python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (45 тестов)
-python3 -m pytest tests/test_integration.py -m integration -s  # e2e тест (~10 сек)
+python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (65 тестов)
+python3 -m pytest tests/test_integration.py -m integration -s  # e2e тесты (~30 сек)
 ```
 
 ## Architecture (MVP)
@@ -43,11 +45,13 @@ docling-rag/
 │   ├── embedder.py         # Sentence Transformers all-MiniLM-L6-v2, L2-нормализация
 │   └── storage.py          # Protocol-абстракция (file → pgvector на этапе 2)
 ├── storage/
-│   └── file_storage.py     # NumPy-хранилище с атомарными записями
+│   ├── file_storage.py     # NumPy-хранилище с атомарными записями
+│   └── doc_registry.py     # Метаданные документов (title, topic, tags) → doc_index.json
 ├── data/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384, float32)
-│   └── metadata.json       # Метаданные chunks
-├── tests/                  # 45 unit + 1 integration
+│   ├── metadata.json       # Метаданные chunks
+│   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
+├── tests/                  # 65 unit + 2 integration
 └── config.yaml             # chunk_size, overlap, top_k_results, embedding_model
 ```
 
@@ -62,6 +66,9 @@ docling-rag/
 - **Атомарные записи** — `_atomic_save` использует `os.replace()` для предотвращения рассинхронизации `.npy`/`.json`
 - **top-k по умолчанию из config** — `--top-k` без явного значения берёт `top_k_results` из `config.yaml`
 - **`--config` флаг на всех командах** — `init`, `add`, `search` принимают `--config path/to/config.yaml`; `list` — только `--data-dir`
+- **Docling не парсит `.txt`** — для integration tests используй `.md`; поддерживаемые форматы: PDF, DOCX, MD
+- **DocRegistry следует паттерну FileStorage** — тот же `_atomic_save` через `os.replace()`, ключ = `source_file`
+- **CLI mock-паттерн** — в тестах патчить `cli.commands.DocRegistry` вместе с `FileStorage`/`Parser`/`Embedder`
 
 ## Non-Goals (MVP)
 
