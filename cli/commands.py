@@ -8,6 +8,7 @@ from cli.config_loader import load_config
 from core.chunker import chunk_elements
 from core.embedder import Embedder
 from core.parser import Parser
+from storage.doc_registry import DocRegistry
 from storage.file_storage import FileStorage
 
 
@@ -37,7 +38,10 @@ def init(data_dir: str, config: str) -> None:
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--data-dir", default="data", help="Storage directory")
 @click.option("--config", default="config.yaml", help="Path to config.yaml")
-def add(file_path: str, data_dir: str, config: str) -> None:
+@click.option("--title", default=None, help="Document title")
+@click.option("--topic", default=None, help="Domain/topic of the document")
+@click.option("--tag", "tags", multiple=True, help="Tag (repeatable: --tag arch --tag solid)")
+def add(file_path: str, data_dir: str, config: str, title: str | None, topic: str | None, tags: tuple[str, ...]) -> None:
     """Add a document or directory to the index."""
     cfg = load_config(config)
     path = Path(file_path)
@@ -52,6 +56,7 @@ def add(file_path: str, data_dir: str, config: str) -> None:
     parser = Parser()
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
+    registry = DocRegistry(data_dir=data_dir)
 
     total_chunks = 0
     for file in files:
@@ -70,10 +75,11 @@ def add(file_path: str, data_dir: str, config: str) -> None:
             texts = [c.text for c in chunks]
             embeddings = embedder.embed(texts)
             storage.append(chunks, embeddings)
+            registry.upsert(str(file), title=title, topic=topic, tags=list(tags))
             total_chunks += len(chunks)
             click.echo(f" {len(chunks)} chunks")
         except Exception as e:
-            click.echo("")  # terminate the progress line
+            click.echo("")
             click.echo(f"Ошибка при обработке {file}: {e}", err=True)
             continue
 

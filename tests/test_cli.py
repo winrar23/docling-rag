@@ -140,3 +140,66 @@ def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):
     assert result.exit_code == 0
     assert "doc.pdf" in result.output
     assert "Предупреждение" in result.output or "не удалось записать лог" in result.output
+
+
+def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
+    """add with --title/--topic/--tag calls DocRegistry.upsert with correct args."""
+    test_doc = tmp_path / "book.md"
+    test_doc.write_text("# Book\n\nContent here.\n")
+
+    with (
+        patch("cli.commands.Parser") as MockParser,
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.chunk_elements") as MockChunker,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.text = "Content here."
+        MockChunker.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, [
+            "add", str(test_doc),
+            "--data-dir", str(tmp_path),
+            "--title", "My Book",
+            "--topic", "architecture",
+            "--tag", "arch",
+            "--tag", "solid",
+        ])
+
+    assert result.exit_code == 0
+    MockRegistry.return_value.upsert.assert_called_once_with(
+        str(test_doc),
+        title="My Book",
+        topic="architecture",
+        tags=["arch", "solid"],
+    )
+
+
+def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
+    """add without metadata flags calls upsert with None/empty."""
+    test_doc = tmp_path / "plain.md"
+    test_doc.write_text("# Plain\n\nText.\n")
+
+    with (
+        patch("cli.commands.Parser"),
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage"),
+        patch("cli.commands.chunk_elements") as MockChunker,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.text = "Text."
+        MockChunker.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    MockRegistry.return_value.upsert.assert_called_once_with(
+        str(test_doc),
+        title=None,
+        topic=None,
+        tags=[],
+    )
