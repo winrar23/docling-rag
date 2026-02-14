@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+.env
+env/
+
+# uv
+.python-version
+
+# Data (не коммитим индекс и документы)
+data/embeddings.npy
+data/metadata.json
+data/documents/
+
+# Logs
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Claude local overrides
+.claude.local.md
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
