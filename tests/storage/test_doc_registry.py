@@ -50,3 +50,33 @@ def test_upsert_multiple_docs(registry):
     assert len(data) == 2
     assert data["a.pdf"]["title"] == "A"
     assert data["b.pdf"]["title"] == "B"
+
+
+def test_get_returns_entry(registry):
+    registry.upsert("c.pdf", title="C", topic="t", tags=["a"])
+    entry = registry.get("c.pdf")
+    assert entry is not None
+    assert entry["title"] == "C"
+
+
+def test_get_returns_none_for_missing(registry):
+    assert registry.get("missing.pdf") is None
+
+
+def test_delete_removes_entry(registry):
+    registry.upsert("d.pdf", title="D", topic=None, tags=[])
+    registry.upsert("e.pdf", title="E", topic=None, tags=[])
+    registry.delete("d.pdf")
+    data = registry.load()
+    assert "d.pdf" not in data
+    assert "e.pdf" in data
+
+
+def test_delete_nonexistent_is_noop(registry):
+    registry.upsert("f.pdf", title="F", topic=None, tags=[])
+    registry.delete("nonexistent.pdf")  # must not raise
+    assert "f.pdf" in registry.load()
+
+
+def test_delete_on_empty_is_noop(registry):
+    registry.delete("anything.pdf")  # must not raise
