@@ -37,6 +37,9 @@ logs/
 # macOS
 .DS_Store
 
+# Git worktrees
+.worktrees/
+
 # Claude local overrides
 .claude.local.md
 
