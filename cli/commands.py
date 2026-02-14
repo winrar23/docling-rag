@@ -23,11 +23,12 @@ def main() -> None:
 
 @main.command()
 @click.option("--data-dir", default="data", help="Storage directory")
-def init(data_dir: str) -> None:
+@click.option("--config", default="config.yaml", help="Path to config.yaml")
+def init(data_dir: str, config: str) -> None:
     """Initialize storage."""
     path = Path(data_dir)
     path.mkdir(parents=True, exist_ok=True)
-    cfg = load_config()
+    cfg = load_config(config)
     Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
     click.echo(f"Инициализировано хранилище: {path.resolve()}")
 
@@ -72,7 +73,7 @@ def add(file_path: str, data_dir: str, config: str) -> None:
             total_chunks += len(chunks)
             click.echo(f" {len(chunks)} chunks")
         except Exception as e:
-            click.echo(f"Error processing {file}: {e}", err=True)
+            click.echo(f"Ошибка при обработке {file}: {e}", err=True)
 
     click.echo(f"\nДобавлено {total_chunks} chunks из {len(files)} файлов.")
 
@@ -113,8 +114,8 @@ def search(query: str, data_dir: str, top_k: int, config: str) -> None:
 
     try:
         _log_search(cfg["log_file"], query, results[0][1] if results else 0.0)
-    except OSError:
-        pass
+    except OSError as e:
+        click.echo(f"Предупреждение: не удалось записать лог: {e}", err=True)
 
 
 @main.command("list")
@@ -139,10 +140,7 @@ def list_docs(data_dir: str) -> None:
 
 
 def _log_search(log_file: str, query: str, top_score: float) -> None:
-    try:
-        path = Path(log_file)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{datetime.now().isoformat()} | score={top_score:.3f} | {query}\n")
-    except OSError:
-        pass
+    path = Path(log_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.now().isoformat()} | score={top_score:.3f} | {query}\n")

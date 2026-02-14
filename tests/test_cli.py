@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from cli import main
@@ -70,7 +70,7 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
         result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "Error processing" in result.output or "corrupt" in result.output.lower()
+    assert "Ошибка при обработке" in result.output or "corrupt" in result.output.lower()
 
 
 def test_search_command_returns_results(runner, tmp_path):
@@ -117,10 +117,18 @@ def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):
           "chunk_id": 0, "page_number": 1, "element_type": "text"}, 0.85),
     ]
 
+    import builtins
+    real_open = builtins.open
+
+    def patched_open(file, *args, **kwargs):
+        if "search_log" in str(file) or str(file).endswith(".log"):
+            raise OSError("permission denied")
+        return real_open(file, *args, **kwargs)
+
     with (
         patch("cli.commands.Embedder") as MockEmbedder,
         patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands._log_search", side_effect=OSError("permission denied")),
+        patch("builtins.open", side_effect=patched_open),
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockStorage.return_value.search.return_value = mock_results
@@ -131,3 +139,4 @@ def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "doc.pdf" in result.output
+    assert "Предупреждение" in result.output or "не удалось записать лог" in result.output
