@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "docling-rag"
 version = "0.1.0"
 description = "Semantic search CLI for technical documentation using Docling"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "docling>=2.0.0",
     "sentence-transformers>=3.0.0",
@@ -27,3 +27,8 @@ docling-rag = "cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core*", "storage*", "cli*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as requiring real Docling and model download (deselect with '-m not integration')",
+]
