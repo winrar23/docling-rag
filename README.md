@@ -1,6 +1,6 @@
 # docling-rag
 
-CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown и TXT, нарезает на chunks, строит векторный индекс и отвечает на запросы ближайшими по смыслу фрагментами.
+CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown, нарезает на chunks, строит векторный индекс и отвечает на запросы ближайшими по смыслу фрагментами. Поддерживает категоризацию документов по теме и тегам.
 
 > **MVP:** поиск без LLM-генерации — возвращает сырые chunks с cosine similarity score.
 
@@ -28,8 +28,14 @@ docling-rag init
 # 3. Добавить документы (файл или папку)
 docling-rag add ./docs/
 
+# 3а. Добавить с метаданными (опционально)
+docling-rag add architecture.pdf --title "Clean Architecture" --topic "software" --tag arch --tag solid
+
 # 4. Поиск
 docling-rag search "схема звезда и таблицы фактов"
+
+# 4а. Поиск только по книгам с тегом arch
+docling-rag search "dependency inversion" --tag arch
 
 # 5. Посмотреть что проиндексировано
 docling-rag list
@@ -54,18 +60,22 @@ docling-rag init [--data-dir data] [--config config.yaml]
 ### `add` — добавить документы в индекс
 
 ```bash
-docling-rag add <путь> [--data-dir data] [--config config.yaml]
+docling-rag add <путь> [--title TEXT] [--topic TEXT] [--tag TEXT]... [--data-dir data] [--config config.yaml]
 ```
 
-Принимает файл или папку. Поддерживаемые форматы: **PDF, DOCX, MD, TXT**.
+Принимает файл или папку. Поддерживаемые форматы: **PDF, DOCX, MD**.
 
+- `--title` — название документа (свободная строка)
+- `--topic` — домен/тема (например: `"software architecture"`, `"data engineering"`)
+- `--tag` — тег, можно указывать несколько: `--tag arch --tag solid`
 - Таблицы и code-блоки хранятся как отдельные неделимые chunks
 - При ошибке на конкретном файле — пропускает и продолжает
 
 ```bash
 # Примеры
 docling-rag add architecture.pdf
-docling-rag add ./docs/
+docling-rag add book.pdf --title "Clean Architecture" --topic "software" --tag arch --tag solid
+docling-rag add ./docs/ --topic "project docs"
 docling-rag add report.docx --data-dir /var/myproject/store
 ```
 
@@ -74,15 +84,21 @@ docling-rag add report.docx --data-dir /var/myproject/store
 ### `search` — семантический поиск
 
 ```bash
-docling-rag search "<запрос>" [--top-k 5] [--data-dir data] [--config config.yaml]
+docling-rag search "<запрос>" [--top-k 5] [--tag TEXT]... [--topic TEXT] [--data-dir data] [--config config.yaml]
 ```
 
 Возвращает топ-K фрагментов, отсортированных по cosine similarity. Поиск работает по смыслу, а не по ключевым словам.
+
+- `--tag` — искать только в документах с этим тегом (можно несколько)
+- `--topic` — искать только в документах с этой темой (без учёта регистра)
 
 ```bash
 # Примеры
 docling-rag search "как работает партиционирование"
 docling-rag search "ETL pipeline best practices" --top-k 10
+docling-rag search "dependency inversion" --tag arch
+docling-rag search "hub and satellite" --topic "data engineering"
+docling-rag search "layered architecture" --tag arch --tag ddd
 ```
 
 **Пример вывода:**
@@ -109,10 +125,12 @@ docling-rag list [--data-dir data]
 ```
 Проиндексировано документов: 3
 ────────────────────────────────────────────────────────────
-  architecture.md                          4 chunks  (docs/architecture.md)
-  design.pdf                              12 chunks  (docs/design.pdf)
-  etl_pipeline.docx                        7 chunks  (docs/etl_pipeline.docx)
+  architecture.md           4 chunks | Clean Architecture     | software           | [arch, solid]
+  design.pdf               12 chunks | Data Vault 2.0         | data engineering   | [data-vault]
+  etl_pipeline.docx         7 chunks | —                      | —                  | []
 ```
+
+Документы без метаданных (добавленные без флагов) показывают `—`.
 
 ---
 
@@ -146,7 +164,6 @@ docling-rag add ./docs/ --config /etc/myproject/config.yaml
 | PDF    | Docling | ✓ | ✓ |
 | DOCX   | Docling | ✓ | ✓ |
 | MD     | Docling | ✓ | ✓ |
-| TXT    | Docling | — | — |
 
 Изображения и диаграммы — только через Docling OCR. Vision LLM (GPT-4V) — этап 2.
 
@@ -157,7 +174,7 @@ docling-rag add ./docs/ --config /etc/myproject/config.yaml
 ```
 Файл → Parser (Docling) → Chunks → Embedder (Sentence Transformers) → FileStorage
                                                                            ↓
-Запрос → Embedder ──────────────────────────────────────── cosine search → Результаты
+Запрос → Embedder ──────────── [DocRegistry filter] ──────── cosine search → Результаты
 ```
 
 **Структура проекта:**
@@ -168,23 +185,25 @@ docling-rag/
 │   ├── commands.py         # Click: init, add, search, list
 │   └── config_loader.py    # Загрузка config.yaml + дефолты
 ├── core/
-│   ├── parser.py           # Docling: PDF/DOCX/MD/TXT → элементы
+│   ├── parser.py           # Docling: PDF/DOCX/MD → элементы
 │   ├── chunker.py          # Нарезка на chunks с overlap
 │   ├── embedder.py         # SentenceTransformer → L2-нормализованные векторы
-│   └── storage.py          # Protocol-абстракция хранилища
+│   └── storage.py          # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
 ├── storage/
-│   └── file_storage.py     # NumPy (.npy) + JSON хранилище
+│   ├── file_storage.py     # NumPy (.npy) + JSON хранилище chunks
+│   └── doc_registry.py     # Реестр документов: title, topic, tags → doc_index.json
 ├── data/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
-│   └── metadata.json       # Метаданные chunks
-├── tests/                  # 45 unit-тестов + 1 integration
+│   ├── metadata.json       # Метаданные chunks
+│   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
+├── tests/                  # 65 unit-тестов + 2 integration
 ├── config.yaml
 └── pyproject.toml
 ```
 
-**Хранилище** — два файла: `embeddings.npy` (матрица N×384, float32) + `metadata.json` (список chunk-метаданных). Записи атомарные — `os.replace()` после записи во временный файл.
+**Хранилище** — два файла: `embeddings.npy` (матрица N×384, float32) + `metadata.json` (список chunk-метаданных). Реестр документов в `doc_index.json`. Все записи атомарные — `os.replace()` после записи во временный файл.
 
-**Protocol-абстракция** `core/storage.py` позволяет заменить NumPy-файлы на pgvector без изменения вызывающего кода (этап 2).
+**Protocol-абстракции** `core/storage.py` позволяют заменить NumPy-файлы на pgvector и `doc_index.json` на таблицу `documents` в PostgreSQL без изменения вызывающего кода (этап 2).
 
 ---
 
@@ -192,9 +211,10 @@ docling-rag/
 
 | Приоритет | Задача | Статус |
 |-----------|--------|--------|
-| P0 | `init`, `add`, `search`, `list` | ✅ MVP |
-| P0 | Поддержка PDF, DOCX, MD, TXT | ✅ MVP |
-| P0 | NumPy cosine search | ✅ MVP |
+| P0 | `init`, `add`, `search`, `list` | ✅ |
+| P0 | Поддержка PDF, DOCX, MD | ✅ |
+| P0 | NumPy cosine search | ✅ |
+| P1 | Метаданные документов: `--title`, `--topic`, `--tag`, фильтр поиска | ✅ |
 | P1 | `update <file>` — переиндексация файла | 🔜 |
 | P1 | pgvector хранилище | 🔜 |
 | P2 | LLM-генерация ответов (GPT-4, Claude) | 💡 |
@@ -212,11 +232,11 @@ uv pip install -e ".[dev]"
 # Все быстрые тесты
 pytest tests/ -m "not integration and not slow"
 
-# Интеграционный тест (реальный Docling + модель, ~10 сек)
+# Интеграционные тесты (реальный Docling + модель, ~30 сек)
 pytest tests/test_integration.py -v -m integration -s
 
 # Только медленные тесты (загрузка модели)
 pytest tests/ -m slow
 ```
 
-**Тесты:** 45 unit-тестов + 1 integration test. Маркер `@pytest.mark.integration` исключает интеграционный тест из дефолтного запуска.
+**Тесты:** 65 unit-тестов + 2 integration tests. Маркер `@pytest.mark.integration` исключает интеграционные тесты из дефолтного запуска.
