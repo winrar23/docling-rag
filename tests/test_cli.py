@@ -282,3 +282,48 @@ def test_search_filter_no_matching_docs_exits_gracefully(runner, tmp_path):
     assert result.exit_code == 0
     assert "нет документов" in result.output.lower() or "no documents" in result.output.lower()
     MockStorage.return_value.search.assert_not_called()
+
+
+def test_list_shows_title_topic_tags(runner, tmp_path):
+    """list command joins chunk counts with doc registry metadata."""
+    with (
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        MockStorage.return_value.load.return_value = (
+            np.zeros((5, 384), dtype=np.float32),
+            [{"source_file": "books/arch.pdf"} for _ in range(5)],
+        )
+        MockRegistry.return_value.load.return_value = {
+            "books/arch.pdf": {
+                "title": "Clean Architecture",
+                "topic": "software",
+                "tags": ["arch", "solid"],
+                "added_at": "2026-02-14T10:00:00",
+            }
+        }
+
+        result = runner.invoke(main, ["list", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Clean Architecture" in result.output
+    assert "software" in result.output
+    assert "arch" in result.output
+
+
+def test_list_shows_dashes_for_docs_without_registry_entry(runner, tmp_path):
+    """list shows — for docs that have no entry in doc_index.json."""
+    with (
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        MockStorage.return_value.load.return_value = (
+            np.zeros((3, 384), dtype=np.float32),
+            [{"source_file": "old.pdf"} for _ in range(3)],
+        )
+        MockRegistry.return_value.load.return_value = {}  # no entries
+
+        result = runner.invoke(main, ["list", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "—" in result.output or "-" in result.output

@@ -158,20 +158,31 @@ def search(
 def list_docs(data_dir: str) -> None:
     """Show list of indexed documents."""
     storage = get_storage(data_dir)
+    registry = DocRegistry(data_dir=data_dir)
     try:
         _, metadata = storage.load()
     except FileNotFoundError:
         click.echo("Хранилище пустое. Документов нет.")
         return
 
-    sources = {}
+    sources: dict[str, int] = {}
     for m in metadata:
         src = m["source_file"]
         sources[src] = sources.get(src, 0) + 1
 
+    doc_index = registry.load()
+
     click.echo(f"\nПроиндексировано документов: {len(sources)}\n" + "-" * 60)
     for src, count in sorted(sources.items()):
-        click.echo(f"  {Path(src).name:40s} {count:4d} chunks  ({src})")
+        entry = doc_index.get(src, {})
+        title = entry.get("title") or "—"
+        topic = entry.get("topic") or "—"
+        tags_str = "[" + ", ".join(entry.get("tags", [])) + "]" if entry.get("tags") else "[]"
+        title_display = (title[:28] + "...") if len(title) > 31 else title
+        click.echo(
+            f"  {Path(src).name:35s} {count:4d} chunks"
+            f" | {title_display:31s} | {topic:18s} | {tags_str}"
+        )
 
 
 def _log_search(log_file: str, query: str, top_score: float) -> None:
