@@ -26,7 +26,7 @@ def test_full_pipeline_on_real_md(tmp_path):
     runner = CliRunner()
 
     # Init
-    result = runner.invoke(main, ["init", "--data-dir", data_dir])
+    result = runner.invoke(main, ["init", "--data-dir", data_dir], catch_exceptions=False)
     assert result.exit_code == 0
 
     # Add
