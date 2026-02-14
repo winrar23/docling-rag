@@ -68,8 +68,12 @@ def test_chunk_ids_are_sequential():
 
 
 def test_chunker_terminates_when_carry_contains_sentence_boundary():
-    """Regression: carry-over ending with '. ' must not cause infinite loop."""
-    elem1 = make_element('A' * 90 + '. ' + 'A' * 20)
+    """Regression: sentence boundary at exactly cut+2==overlap caused infinite loop.
+
+    '. ' at position 48 causes rfind to return 48, cut+2=50==overlap.
+    Old code: carry=text[0:50], new_buffer=text (unchanged) -> infinite loop.
+    """
+    elem1 = make_element('A' * 48 + '. ' + 'A' * 52)
     elem2 = make_element('B' * 500)
     result = chunk_elements([elem1, elem2], source_file="doc.pdf", chunk_size=100, overlap=50)
     assert len(result) > 1
@@ -89,3 +93,8 @@ def test_mixed_text_table_flushes_and_continues_chunk_ids():
     assert result[2].element_type == "text"
     ids = [c.chunk_id for c in result]
     assert ids == [0, 1, 2]
+
+
+def test_overlap_equal_to_chunk_size_raises():
+    with pytest.raises(ValueError, match="overlap"):
+        chunk_elements([], source_file="doc.pdf", chunk_size=100, overlap=100)
