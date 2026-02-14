@@ -22,12 +22,15 @@ def chunk_elements(
     Tables and code blocks → atomic chunks.
     Text elements → accumulated to chunk_size chars with overlap.
     """
+    if overlap >= chunk_size:
+        raise ValueError(f"overlap ({overlap}) must be less than chunk_size ({chunk_size})")
+
     chunks: list[Chunk] = []
     chunk_id = 0
     text_buffer = ""
     buffer_page = 1
 
-    def flush_buffer(carry_over: str = "") -> None:
+    def flush_buffer() -> None:
         nonlocal chunk_id, text_buffer, buffer_page
         if text_buffer.strip():
             chunks.append(Chunk(
@@ -38,7 +41,7 @@ def chunk_elements(
                 element_type="text",
             ))
             chunk_id += 1
-        text_buffer = carry_over
+        text_buffer = ""
 
     for element in elements:
         etype = element.get("type", "text")
@@ -63,7 +66,7 @@ def chunk_elements(
 
             while len(text_buffer) > chunk_size:
                 cut = text_buffer.rfind(". ", 0, chunk_size)
-                if cut == -1:
+                if cut == -1 or cut + 2 <= overlap:   # boundary too close — fall back to hard cut
                     cut = chunk_size
                 else:
                     cut += 2

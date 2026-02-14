@@ -50,9 +50,9 @@ def test_overlap_carries_context():
     sentence = "The quick brown fox. "
     elements = [make_element(sentence * 100)]
     result = chunk_elements(elements, source_file="doc.pdf", chunk_size=200, overlap=40)
-    if len(result) > 1:
-        end_of_first = result[0].text[-40:]
-        assert end_of_first in result[1].text or len(result[1].text) > 0
+    assert len(result) > 1  # must have split
+    end_of_first = result[0].text[-40:]
+    assert end_of_first in result[1].text
 
 
 def test_empty_elements_returns_empty_list():
@@ -65,3 +65,27 @@ def test_chunk_ids_are_sequential():
     result = chunk_elements(elements, source_file="doc.pdf", chunk_size=200, overlap=20)
     ids = [c.chunk_id for c in result]
     assert ids == list(range(len(result)))
+
+
+def test_chunker_terminates_when_carry_contains_sentence_boundary():
+    """Regression: carry-over ending with '. ' must not cause infinite loop."""
+    elem1 = make_element('A' * 90 + '. ' + 'A' * 20)
+    elem2 = make_element('B' * 500)
+    result = chunk_elements([elem1, elem2], source_file="doc.pdf", chunk_size=100, overlap=50)
+    assert len(result) > 1
+
+
+def test_mixed_text_table_flushes_and_continues_chunk_ids():
+    """Text before a table is flushed; chunk_ids are continuous."""
+    elements = [
+        make_element("Some text before table."),
+        make_element("col1 | col2", etype="table"),
+        make_element("Some text after table."),
+    ]
+    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=3200, overlap=80)
+    assert len(result) == 3
+    assert result[0].element_type == "text"
+    assert result[1].element_type == "table"
+    assert result[2].element_type == "text"
+    ids = [c.chunk_id for c in result]
+    assert ids == [0, 1, 2]
