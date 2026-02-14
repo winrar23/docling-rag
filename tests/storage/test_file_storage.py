@@ -183,3 +183,46 @@ def test_storage_save_length_mismatch_raises(storage):
     emb = make_embeddings(5)  # mismatch
     with pytest.raises(ValueError, match="mismatch"):
         storage.save(chunks, emb)
+
+
+def test_search_with_allowed_sources_filters_results(storage):
+    """search() only returns chunks from allowed_sources."""
+    chunks_a = make_chunks(3, source="alpha.pdf")
+    chunks_b = make_chunks(3, source="beta.pdf")
+    all_chunks = chunks_a + chunks_b
+    for i, c in enumerate(all_chunks):
+        c.chunk_id = i
+    emb = make_embeddings(6)
+    storage.save(all_chunks, emb)
+
+    query = make_embeddings(1)[0]
+    results = storage.search(query_embedding=query, top_k=6, allowed_sources={"alpha.pdf"})
+
+    assert len(results) <= 3
+    assert all(meta["source_file"] == "alpha.pdf" for meta, _ in results)
+
+
+def test_search_with_empty_allowed_sources_returns_empty(storage):
+    """Empty allowed_sources set -> no results."""
+    chunks = make_chunks(3)
+    emb = make_embeddings(3)
+    storage.save(chunks, emb)
+
+    query = make_embeddings(1)[0]
+    results = storage.search(query_embedding=query, top_k=3, allowed_sources=set())
+    assert results == []
+
+
+def test_search_with_none_allowed_sources_searches_all(storage):
+    """allowed_sources=None (default) -> searches all docs, unchanged behaviour."""
+    chunks_a = make_chunks(2, source="a.pdf")
+    chunks_b = make_chunks(2, source="b.pdf")
+    all_chunks = chunks_a + chunks_b
+    for i, c in enumerate(all_chunks):
+        c.chunk_id = i
+    emb = make_embeddings(4)
+    storage.save(all_chunks, emb)
+
+    query = make_embeddings(1)[0]
+    results = storage.search(query_embedding=query, top_k=4, allowed_sources=None)
+    assert len(results) == 4

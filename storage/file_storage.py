@@ -102,12 +102,16 @@ class FileStorage:
         self._atomic_save(embeddings[keep], [metadata[i] for i in keep])
 
     def search(
-        self, query_embedding: np.ndarray, top_k: int = 5
+        self,
+        query_embedding: np.ndarray,
+        top_k: int = 5,
+        allowed_sources: set[str] | None = None,
     ) -> list[tuple[dict, float]]:
         """
         Linear cosine similarity search.
         query_embedding must be L2-normalized.
         Since stored embeddings are normalized, cosine_sim = dot(query, vec).
+        allowed_sources: if set, only chunks from those source_files are searched.
         """
         if top_k <= 0:
             raise ValueError(f"top_k must be positive, got {top_k}")
@@ -116,6 +120,12 @@ class FileStorage:
             raise ValueError(
                 f"Dimension mismatch: stored={embeddings.shape[1]}, query={query_embedding.shape[0]}"
             )
+        if allowed_sources is not None:
+            mask = [i for i, m in enumerate(metadata) if m["source_file"] in allowed_sources]
+            if not mask:
+                return []
+            embeddings = embeddings[mask]
+            metadata = [metadata[i] for i in mask]
         scores: np.ndarray = embeddings @ query_embedding  # (N,)
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [(metadata[i], float(scores[i])) for i in top_indices]
