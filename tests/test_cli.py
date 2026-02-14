@@ -1,0 +1,87 @@
+import numpy as np
+import pytest
+from unittest.mock import MagicMock, patch
+from click.testing import CliRunner
+
+from cli import main
+
+
+@pytest.fixture
+def runner():
+    return CliRunner()
+
+
+def test_init_command_creates_data_dir(runner, tmp_path):
+    result = runner.invoke(main, ["init", "--data-dir", str(tmp_path / "mystore")])
+    assert result.exit_code == 0
+    assert (tmp_path / "mystore").exists()
+    assert "Инициализировано" in result.output
+
+
+def test_list_command_empty_storage(runner, tmp_path):
+    with patch("cli.commands.FileStorage") as MockStorage:
+        MockStorage.return_value.load.side_effect = FileNotFoundError
+        result = runner.invoke(main, ["list", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "пустое" in result.output.lower() or "нет" in result.output.lower()
+
+
+def test_add_command_indexes_file(runner, tmp_path):
+    test_doc = tmp_path / "test.md"
+    test_doc.write_text("# Test\n\nThis is a test document.\n")
+
+    with (
+        patch("cli.commands.Parser") as MockParser,
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+    ):
+        MockParser.return_value.parse.return_value = [
+            {"text": "Test content.", "type": "text", "page": 1}
+        ]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        mock_storage_instance = MagicMock()
+        mock_storage_instance.load.side_effect = FileNotFoundError
+        MockStorage.return_value = mock_storage_instance
+
+        result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "chunk" in result.output.lower() or "добавлен" in result.output.lower()
+
+
+def test_search_command_returns_results(runner, tmp_path):
+    mock_results = [
+        ({"text": "SQL query example SELECT *", "source_file": "doc.pdf",
+          "chunk_id": 0, "page_number": 1, "element_type": "code"}, 0.92),
+        ({"text": "Database schema description", "source_file": "arch.docx",
+          "chunk_id": 1, "page_number": 2, "element_type": "text"}, 0.78),
+    ]
+
+    with (
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.return_value = mock_results
+
+        result = runner.invoke(
+            main, ["search", "SQL query example", "--data-dir", str(tmp_path)]
+        )
+
+    assert result.exit_code == 0
+    assert "0.920" in result.output or "0.92" in result.output
+    assert "doc.pdf" in result.output
+
+
+def test_search_command_empty_storage(runner, tmp_path):
+    with (
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.side_effect = FileNotFoundError
+
+        result = runner.invoke(main, ["search", "query", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "пустое" in result.output.lower() or "нет документов" in result.output.lower()
