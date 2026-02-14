@@ -30,6 +30,7 @@ def test_embedder_normalized_vectors():
     np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
 
+@pytest.mark.slow
 def test_similar_texts_have_high_similarity():
     embedder = Embedder()
     vecs = embedder.embed(["database schema", "schema of database", "python syntax"])
@@ -41,4 +42,4 @@ def test_similar_texts_have_high_similarity():
 def test_embedder_empty_list_returns_empty_array():
     embedder = Embedder()
     result = embedder.embed([])
-    assert result.shape[0] == 0
+    assert result.shape == (0, 384)

@@ -31,4 +31,5 @@ include = ["core*", "storage*", "cli*"]
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as requiring real Docling and model download (deselect with '-m not integration')",
+    "slow: marks tests that are slow due to model inference (deselect with '-m not slow')",
 ]

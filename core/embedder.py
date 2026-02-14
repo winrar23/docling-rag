@@ -10,6 +10,7 @@ class Embedder:
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self._model = SentenceTransformer(model_name)
+        self._dim: int = self._model.get_sentence_embedding_dimension()
 
     def embed(self, texts: list[str]) -> np.ndarray:
         """
@@ -19,7 +20,7 @@ class Embedder:
             np.ndarray shape (N, 384), L2-normalized float32 vectors
         """
         if not texts:
-            return np.empty((0, 384), dtype=np.float32)
+            return np.empty((0, self._dim), dtype=np.float32)
 
         embeddings = self._model.encode(
             texts,
