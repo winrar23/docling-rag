@@ -203,3 +203,82 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
         topic=None,
         tags=[],
     )
+
+
+def test_search_with_tag_filter_passes_allowed_sources(runner, tmp_path):
+    """search --tag filters to docs that have that tag."""
+    with (
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.load.return_value = {
+            "arch.pdf": {"title": "T", "topic": "arch", "tags": ["arch"], "added_at": "2026-01-01"},
+            "data.pdf": {"title": "D", "topic": "data", "tags": ["etl"],  "added_at": "2026-01-01"},
+        }
+        MockStorage.return_value.search.return_value = [
+            ({"text": "result", "source_file": "arch.pdf", "page_number": 1, "element_type": "text"}, 0.9)
+        ]
+
+        result = runner.invoke(main, [
+            "search", "query text",
+            "--data-dir", str(tmp_path),
+            "--tag", "arch",
+        ])
+
+    assert result.exit_code == 0
+    call_kwargs = MockStorage.return_value.search.call_args
+    assert call_kwargs.kwargs.get("allowed_sources") == {"arch.pdf"} or \
+           (call_kwargs.args and {"arch.pdf"} in call_kwargs.args)
+
+
+def test_search_with_topic_filter_case_insensitive(runner, tmp_path):
+    """search --topic filters case-insensitively."""
+    with (
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.load.return_value = {
+            "arch.pdf": {"title": "T", "topic": "Software Architecture", "tags": [], "added_at": "2026-01-01"},
+            "data.pdf": {"title": "D", "topic": "data engineering",     "tags": [], "added_at": "2026-01-01"},
+        }
+        MockStorage.return_value.search.return_value = [
+            ({"text": "r", "source_file": "arch.pdf", "page_number": 1, "element_type": "text"}, 0.8)
+        ]
+
+        result = runner.invoke(main, [
+            "search", "patterns",
+            "--data-dir", str(tmp_path),
+            "--topic", "software architecture",
+        ])
+
+    assert result.exit_code == 0
+    call_kwargs = MockStorage.return_value.search.call_args
+    allowed = call_kwargs.kwargs.get("allowed_sources") or (call_kwargs.args[2] if len(call_kwargs.args) > 2 else None)
+    assert "arch.pdf" in allowed
+    assert "data.pdf" not in allowed
+
+
+def test_search_filter_no_matching_docs_exits_gracefully(runner, tmp_path):
+    """search --tag with no matching docs prints message and does not call storage."""
+    with (
+        patch("cli.commands.Embedder"),
+        patch("cli.commands.FileStorage") as MockStorage,
+        patch("cli.commands.DocRegistry") as MockRegistry,
+    ):
+        MockRegistry.return_value.load.return_value = {
+            "data.pdf": {"title": "D", "topic": "data", "tags": ["etl"], "added_at": "2026-01-01"},
+        }
+
+        result = runner.invoke(main, [
+            "search", "query",
+            "--data-dir", str(tmp_path),
+            "--tag", "nonexistent-tag",
+        ])
+
+    assert result.exit_code == 0
+    assert "нет документов" in result.output.lower() or "no documents" in result.output.lower()
+    MockStorage.return_value.search.assert_not_called()

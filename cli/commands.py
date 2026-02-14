@@ -91,16 +91,43 @@ def add(file_path: str, data_dir: str, config: str, title: str | None, topic: st
 @click.option("--data-dir", default="data", help="Storage directory")
 @click.option("--top-k", default=None, type=int, help="Number of results")
 @click.option("--config", default="config.yaml", help="Path to config.yaml")
-def search(query: str, data_dir: str, top_k: int | None, config: str) -> None:
+@click.option("--tag", "filter_tags", multiple=True, help="Filter to docs with this tag (repeatable)")
+@click.option("--topic", "filter_topic", default=None, help="Filter to docs with this topic (case-insensitive)")
+def search(
+    query: str,
+    data_dir: str,
+    top_k: int | None,
+    config: str,
+    filter_tags: tuple[str, ...],
+    filter_topic: str | None,
+) -> None:
     """Perform semantic search over the documentation."""
     cfg = load_config(config)
     k = top_k if top_k is not None else cfg["top_k_results"]
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
+    registry = DocRegistry(data_dir=data_dir)
+
+    allowed_sources: set[str] | None = None
+    if filter_tags or filter_topic:
+        doc_index = registry.load()
+        matched = []
+        for src, entry in doc_index.items():
+            tag_ok = all(t in entry.get("tags", []) for t in filter_tags) if filter_tags else True
+            topic_ok = (
+                (entry.get("topic") or "").lower() == filter_topic.lower()
+                if filter_topic else True
+            )
+            if tag_ok and topic_ok:
+                matched.append(src)
+        if not matched:
+            click.echo("Нет документов с такими тегами/темой.")
+            return
+        allowed_sources = set(matched)
 
     try:
         query_emb = embedder.embed([query])[0]
-        results = storage.search(query_embedding=query_emb, top_k=k)
+        results = storage.search(query_embedding=query_emb, top_k=k, allowed_sources=allowed_sources)
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
         return
