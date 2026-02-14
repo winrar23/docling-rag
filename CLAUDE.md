@@ -7,13 +7,16 @@ RAG-система: Docling → chunking → Sentence Transformers → NumPy cos
 
 ## Stack (MVP)
 
-- Python 3.10–3.12, Docling, Sentence Transformers (`all-MiniLM-L6-v2`), NumPy, Click
+- Python 3.10–3.12, Docling, Sentence Transformers (`all-MiniLM-L6-v2`), NumPy, Click, PyYAML
 
 ## Commands (dev)
 
 ```bash
 # Установка зависимостей
 uv pip install -e ".[dev]"
+
+# Проверить установку
+docling-rag --help
 
 # CLI команды
 docling-rag init              # инициализировать хранилище в текущей директории
@@ -23,8 +26,8 @@ docling-rag list              # список проиндексированны�
 # update <file> — P1, не реализован
 
 # Тесты
-pytest tests/ -m "not integration and not slow"          # быстрые (45 тестов)
-pytest tests/test_integration.py -m integration -s       # e2e тест (~10 сек)
+python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (45 тестов)
+python3 -m pytest tests/test_integration.py -m integration -s  # e2e тест (~10 сек)
 ```
 
 ## Architecture (MVP)
@@ -58,6 +61,7 @@ docling-rag/
 - **Одна embedding-модель для индексации и поиска** — нельзя менять модель без полной переиндексации
 - **Атомарные записи** — `_atomic_save` использует `os.replace()` для предотвращения рассинхронизации `.npy`/`.json`
 - **top-k по умолчанию из config** — `--top-k` без явного значения берёт `top_k_results` из `config.yaml`
+- **`--config` флаг на всех командах** — `init`, `add`, `search` принимают `--config path/to/config.yaml`; `list` — только `--data-dir`
 
 ## Non-Goals (MVP)
 
