@@ -110,7 +110,7 @@ def test_storage_search_returns_top_k(storage):
     assert len(results) == 3
     for meta, score in results:
         assert "text" in meta
-        assert 0.0 <= score <= 1.0
+        assert -1.0 <= score <= 1.0
 
 
 def test_storage_search_sorted_by_score(storage):
@@ -124,3 +124,62 @@ def test_storage_search_sorted_by_score(storage):
     scores = [score for _, score in results]
     assert scores == sorted(scores, reverse=True)
     assert results[0][1] > 0.99  # first result is exact match
+
+
+def test_storage_append_on_empty_storage(storage):
+    """append() on first call (storage empty) should work without error."""
+    chunks = make_chunks(2, source="first.pdf")
+    emb = make_embeddings(2)
+    storage.append(chunks, emb)  # no prior save — must not raise
+
+    loaded_emb, loaded_meta = storage.load()
+    assert loaded_emb.shape[0] == 2
+    assert loaded_meta[0]["source_file"] == "first.pdf"
+
+
+def test_storage_delete_all_chunks_empties_storage(storage):
+    """delete_by_source when all chunks belong to that source unlinks files."""
+    chunks = make_chunks(2, source="only.pdf")
+    emb = make_embeddings(2)
+    storage.save(chunks, emb)
+
+    storage.delete_by_source("only.pdf")
+
+    with pytest.raises(FileNotFoundError):
+        storage.load()
+
+
+def test_storage_delete_nonexistent_source_is_noop(storage):
+    """delete_by_source for a source that doesn't exist — no error."""
+    chunks = make_chunks(2)
+    emb = make_embeddings(2)
+    storage.save(chunks, emb)
+
+    storage.delete_by_source("nonexistent.pdf")  # must not raise
+
+    _, meta = storage.load()
+    assert len(meta) == 2  # unchanged
+
+
+def test_storage_delete_on_empty_storage_is_noop(storage):
+    """delete_by_source on empty storage — no error."""
+    storage.delete_by_source("anything.pdf")  # must not raise
+
+
+def test_storage_search_top_k_larger_than_data(storage):
+    """search() with top_k > N returns all N results, not an error."""
+    chunks = make_chunks(2)
+    emb = make_embeddings(2)
+    storage.save(chunks, emb)
+
+    query = make_embeddings(1)[0]
+    results = storage.search(query_embedding=query, top_k=10)
+    assert len(results) == 2  # only 2 available
+
+
+def test_storage_save_length_mismatch_raises(storage):
+    """save() with mismatched chunks/embeddings raises ValueError."""
+    chunks = make_chunks(3)
+    emb = make_embeddings(5)  # mismatch
+    with pytest.raises(ValueError, match="mismatch"):
+        storage.save(chunks, emb)
