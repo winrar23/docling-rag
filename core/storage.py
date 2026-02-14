@@ -32,3 +32,33 @@ class StorageBackend(Protocol):
     ) -> list[tuple[dict, float]]:
         """Find top_k nearest chunks by cosine similarity."""
         ...
+
+
+class DocumentRegistryBackend(Protocol):
+    """
+    Protocol for document-level metadata registries. Implementations:
+    - storage.doc_registry.DocRegistry (MVP)
+    - storage.db_registry.DBRegistry (Phase 2, PostgreSQL)
+    """
+
+    def upsert(
+        self,
+        source_file: str,
+        title: str | None,
+        topic: str | None,
+        tags: list[str],
+    ) -> None:
+        """Add or update document entry. Preserves added_at on re-index."""
+        ...
+
+    def delete(self, source_file: str) -> None:
+        """Remove document entry."""
+        ...
+
+    def get(self, source_file: str) -> dict | None:
+        """Return entry for source_file or None."""
+        ...
+
+    def load(self) -> dict[str, dict]:
+        """Return full index as {source_file: {title, topic, tags, added_at}}."""
+        ...
