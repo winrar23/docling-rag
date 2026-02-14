@@ -22,6 +22,9 @@ data/embeddings.npy
 data/metadata.json
 data/documents/
 
+# Docs (локальная документация, не публикуем)
+docs/
+
 # Logs
 logs/
 
