@@ -2,10 +2,9 @@
 """
 Smoke-тест: end-to-end пайплайн на реальном .md файле.
 Требует установленного Docling и загруженной модели.
-Пометить @pytest.mark.integration — не запускать в CI по умолчанию.
+Помечен @pytest.mark.integration — не запускается в CI по умолчанию.
 """
 import pytest
-from pathlib import Path
 from click.testing import CliRunner
 from cli import main
 
@@ -31,12 +30,17 @@ def test_full_pipeline_on_real_md(tmp_path):
     assert result.exit_code == 0
 
     # Add
-    result = runner.invoke(main, ["add", str(doc), "--data-dir", data_dir])
+    result = runner.invoke(main, ["add", str(doc), "--data-dir", data_dir], catch_exceptions=False)
     assert result.exit_code == 0
     assert "chunk" in result.output.lower()
 
+    # List
+    result = runner.invoke(main, ["list", "--data-dir", data_dir], catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "test_doc.md" in result.output
+
     # Search
-    result = runner.invoke(main, ["search", "star schema fact table", "--data-dir", data_dir])
+    result = runner.invoke(main, ["search", "star schema fact table", "--data-dir", data_dir], catch_exceptions=False)
     assert result.exit_code == 0
     assert "score=" in result.output
     assert "test_doc.md" in result.output
