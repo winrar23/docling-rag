@@ -4,8 +4,6 @@ import yaml
 
 _DEFAULTS = {
     "embedding_model": "all-MiniLM-L6-v2",
-    "chunk_size": 3200,
-    "chunk_overlap": 320,
     "top_k_results": 5,
     "data_dir": "data",
     "log_file": "logs/search.log",

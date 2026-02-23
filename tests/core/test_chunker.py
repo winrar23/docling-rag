@@ -1,100 +1,120 @@
-import pytest
-from core.chunker import Chunk, chunk_elements
+from core.chunker import Chunk
 
 
-def make_element(text, etype="text", page=1):
-    return {"text": text, "type": etype, "page": page}
+def test_chunk_has_headings_field():
+    chunk = Chunk(
+        text="Some text",
+        source_file="doc.pdf",
+        chunk_id=0,
+        page_number=1,
+        element_type="text",
+        headings=["Chapter 1", "Section 1.1"],
+        context_text="Chapter 1\nSection 1.1\nSome text",
+    )
+    assert chunk.headings == ["Chapter 1", "Section 1.1"]
+    assert chunk.context_text == "Chapter 1\nSection 1.1\nSome text"
 
 
-def test_chunk_returns_list_of_chunks():
-    elements = [make_element("Hello world. This is a test.")]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=3200, overlap=80)
-    assert isinstance(result, list)
-    assert len(result) > 0
-    assert isinstance(result[0], Chunk)
+def test_chunk_headings_default_empty():
+    chunk = Chunk(
+        text="Text",
+        source_file="doc.pdf",
+        chunk_id=0,
+        page_number=1,
+        element_type="text",
+    )
+    assert chunk.headings == []
+    assert chunk.context_text == ""
+
+from unittest.mock import MagicMock, patch
+from core.chunker import chunk_document
 
 
-def test_chunk_has_required_fields():
-    elements = [make_element("Hello world.")]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=3200, overlap=80)
-    chunk = result[0]
-    assert chunk.source_file == "doc.pdf"
-    assert chunk.chunk_id == 0
-    assert chunk.page_number == 1
-    assert chunk.element_type == "text"
-    assert "Hello world" in chunk.text
+def _make_mock_doc_chunk(text, headings=None, label_value="text", page_no=1):
+    """Helper: create a mock DocChunk matching docling_core's API."""
+    chunk = MagicMock()
+    chunk.text = text
+    chunk.meta.headings = headings or []
+
+    doc_item = MagicMock()
+    doc_item.label.value = label_value
+    doc_item.prov = [MagicMock(page_no=page_no)]
+    chunk.meta.doc_items = [doc_item]
+
+    return chunk
 
 
-def test_table_is_atomic_chunk():
-    elements = [make_element("col1 | col2\n----|----\nA | B", etype="table")]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=100, overlap=10)
-    assert len(result) == 1
-    assert result[0].element_type == "table"
+def test_chunk_document_returns_chunks_with_headings():
+    mock_doc = MagicMock()
+    mock_chunks = [
+        _make_mock_doc_chunk("Intro text", headings=["Chapter 1"], label_value="text", page_no=1),
+        _make_mock_doc_chunk("col|val\n---|---\na|b", headings=["Chapter 1", "Data"], label_value="table", page_no=2),
+    ]
+
+    with patch("core.chunker.HybridChunker") as MockHybrid, \
+         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+        MockTok.from_pretrained.return_value = MagicMock()
+        instance = MockHybrid.return_value
+        instance.chunk.return_value = iter(mock_chunks)
+        instance.contextualize.side_effect = lambda c: "\n".join((c.meta.headings or []) + [c.text])
+
+        result = chunk_document(mock_doc, source_file="report.pdf", embedding_model="all-MiniLM-L6-v2")
+
+    assert len(result) == 2
+    assert result[0].text == "Intro text"
+    assert result[0].headings == ["Chapter 1"]
+    assert result[0].element_type == "text"
+    assert result[0].page_number == 1
+    assert result[0].source_file == "report.pdf"
+    assert result[0].chunk_id == 0
+    assert "Chapter 1" in result[0].context_text
+
+    assert result[1].element_type == "table"
+    assert result[1].page_number == 2
+    assert result[1].chunk_id == 1
 
 
-def test_code_is_atomic_chunk():
-    elements = [make_element("SELECT * FROM users WHERE id = 1", etype="code")]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=100, overlap=10)
-    assert len(result) == 1
-    assert result[0].element_type == "code"
+def test_chunk_document_empty_doc_returns_empty():
+    mock_doc = MagicMock()
 
+    with patch("core.chunker.HybridChunker") as MockHybrid, \
+         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+        MockTok.from_pretrained.return_value = MagicMock()
+        MockHybrid.return_value.chunk.return_value = iter([])
 
-def test_long_text_is_split_into_multiple_chunks():
-    long_text = "Sentence number {}. " * 200
-    elements = [make_element(long_text.format(*range(200)))]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=200, overlap=20)
-    assert len(result) > 1
+        result = chunk_document(mock_doc, source_file="empty.pdf")
 
-
-def test_overlap_carries_context():
-    sentence = "The quick brown fox. "
-    elements = [make_element(sentence * 100)]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=200, overlap=40)
-    assert len(result) > 1  # must have split
-    end_of_first = result[0].text[-40:]
-    assert end_of_first in result[1].text
-
-
-def test_empty_elements_returns_empty_list():
-    result = chunk_elements([], source_file="doc.pdf", chunk_size=3200, overlap=80)
     assert result == []
 
 
-def test_chunk_ids_are_sequential():
-    elements = [make_element("Text " * 500)]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=200, overlap=20)
-    ids = [c.chunk_id for c in result]
-    assert ids == list(range(len(result)))
+def test_chunk_document_no_prov_defaults_page_1():
+    """If doc_item has no prov, page_number defaults to 1."""
+    mock_doc = MagicMock()
+    chunk = _make_mock_doc_chunk("text", label_value="text")
+    chunk.meta.doc_items[0].prov = []  # no provenance
+
+    with patch("core.chunker.HybridChunker") as MockHybrid, \
+         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+        MockTok.from_pretrained.return_value = MagicMock()
+        MockHybrid.return_value.chunk.return_value = iter([chunk])
+        MockHybrid.return_value.contextualize.return_value = "text"
+
+        result = chunk_document(mock_doc, source_file="doc.pdf")
+
+    assert result[0].page_number == 1
 
 
-def test_chunker_terminates_when_carry_contains_sentence_boundary():
-    """Regression: sentence boundary at exactly cut+2==overlap caused infinite loop.
+def test_chunk_document_code_element_type():
+    mock_doc = MagicMock()
+    chunk = _make_mock_doc_chunk("print('hello')", label_value="code", page_no=3)
 
-    '. ' at position 48 causes rfind to return 48, cut+2=50==overlap.
-    Old code: carry=text[0:50], new_buffer=text (unchanged) -> infinite loop.
-    """
-    elem1 = make_element('A' * 48 + '. ' + 'A' * 52)
-    elem2 = make_element('B' * 500)
-    result = chunk_elements([elem1, elem2], source_file="doc.pdf", chunk_size=100, overlap=50)
-    assert len(result) > 1
+    with patch("core.chunker.HybridChunker") as MockHybrid, \
+         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+        MockTok.from_pretrained.return_value = MagicMock()
+        MockHybrid.return_value.chunk.return_value = iter([chunk])
+        MockHybrid.return_value.contextualize.return_value = "print('hello')"
 
+        result = chunk_document(mock_doc, source_file="doc.pdf")
 
-def test_mixed_text_table_flushes_and_continues_chunk_ids():
-    """Text before a table is flushed; chunk_ids are continuous."""
-    elements = [
-        make_element("Some text before table."),
-        make_element("col1 | col2", etype="table"),
-        make_element("Some text after table."),
-    ]
-    result = chunk_elements(elements, source_file="doc.pdf", chunk_size=3200, overlap=80)
-    assert len(result) == 3
-    assert result[0].element_type == "text"
-    assert result[1].element_type == "table"
-    assert result[2].element_type == "text"
-    ids = [c.chunk_id for c in result]
-    assert ids == [0, 1, 2]
-
-
-def test_overlap_equal_to_chunk_size_raises():
-    with pytest.raises(ValueError, match="overlap"):
-        chunk_elements([], source_file="doc.pdf", chunk_size=100, overlap=100)
+    assert result[0].element_type == "code"
+    assert result[0].page_number == 3

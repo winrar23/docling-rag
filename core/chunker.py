@@ -1,5 +1,8 @@
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+
+from docling_core.transforms.chunker import HybridChunker
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from docling_core.types.doc.document import DoclingDocument
 
 
 @dataclass
@@ -9,80 +12,64 @@ class Chunk:
     chunk_id: int
     page_number: int
     element_type: str  # "text", "table", "code"
+    headings: list[str] = field(default_factory=list)
+    context_text: str = ""
 
 
-def chunk_elements(
-    elements: list[dict[str, Any]],
+def _extract_element_type(doc_chunk) -> str:
+    """Map DocChunk's first doc_item label to our element_type string."""
+    try:
+        label = doc_chunk.meta.doc_items[0].label.value
+    except (IndexError, AttributeError):
+        return "text"
+    if label == "table":
+        return "table"
+    if label == "code":
+        return "code"
+    return "text"
+
+
+def _extract_page_number(doc_chunk) -> int:
+    """Extract page number from first doc_item's provenance."""
+    try:
+        prov = doc_chunk.meta.doc_items[0].prov
+        if prov and len(prov) > 0:
+            return int(prov[0].page_no)
+    except (IndexError, AttributeError, TypeError, ValueError):
+        pass
+    return 1
+
+
+def chunk_document(
+    dl_doc: DoclingDocument,
     source_file: str,
-    chunk_size: int = 3200,   # characters (≈800 tokens × 4 chars/token)
-    overlap: int = 320,        # characters (≈80 tokens)
+    embedding_model: str = "all-MiniLM-L6-v2",
 ) -> list[Chunk]:
     """
-    Splits list of Docling elements into Chunk objects.
-    Tables and code blocks → atomic chunks.
-    Text elements → accumulated to chunk_size chars with overlap.
+    Chunk a DoclingDocument using Docling's HybridChunker.
+
+    Returns list of Chunk objects with heading context for embedding.
+    HybridChunker splits by document structure, respects token limits
+    of the embedding model, and merges small peer chunks.
     """
-    if overlap >= chunk_size:
-        raise ValueError(f"overlap ({overlap}) must be less than chunk_size ({chunk_size})")
+    tokenizer = HuggingFaceTokenizer.from_pretrained(
+        f"sentence-transformers/{embedding_model}"
+    )
+    chunker = HybridChunker(tokenizer=tokenizer)
 
     chunks: list[Chunk] = []
-    chunk_id = 0
-    text_buffer = ""
-    buffer_page = 1
+    for chunk_id, doc_chunk in enumerate(chunker.chunk(dl_doc)):
+        context_text = chunker.contextualize(doc_chunk)
+        headings = list(doc_chunk.meta.headings or [])
 
-    def flush_buffer() -> None:
-        nonlocal chunk_id, text_buffer, buffer_page
-        if text_buffer.strip():
-            chunks.append(Chunk(
-                text=text_buffer.strip(),
-                source_file=source_file,
-                chunk_id=chunk_id,
-                page_number=buffer_page,
-                element_type="text",
-            ))
-            chunk_id += 1
-        text_buffer = ""
+        chunks.append(Chunk(
+            text=doc_chunk.text,
+            source_file=source_file,
+            chunk_id=chunk_id,
+            page_number=_extract_page_number(doc_chunk),
+            element_type=_extract_element_type(doc_chunk),
+            headings=headings,
+            context_text=context_text,
+        ))
 
-    for element in elements:
-        etype = element.get("type", "text")
-        text = element.get("text", "")
-        page = element.get("page", 1)
-
-        if etype in ("table", "code"):
-            flush_buffer()
-            if text.strip():
-                chunks.append(Chunk(
-                    text=text.strip(),
-                    source_file=source_file,
-                    chunk_id=chunk_id,
-                    page_number=page,
-                    element_type=etype,
-                ))
-                chunk_id += 1
-        else:
-            if not text_buffer:
-                buffer_page = page
-            text_buffer += text + " "
-
-            while len(text_buffer) > chunk_size:
-                cut = text_buffer.rfind(". ", 0, chunk_size)
-                if cut == -1 or cut + 2 <= overlap:   # boundary too close — fall back to hard cut
-                    cut = chunk_size
-                else:
-                    cut += 2
-
-                chunk_text = text_buffer[:cut].strip()
-                carry = text_buffer[max(0, cut - overlap):cut]
-                chunks.append(Chunk(
-                    text=chunk_text,
-                    source_file=source_file,
-                    chunk_id=chunk_id,
-                    page_number=buffer_page,
-                    element_type="text",
-                ))
-                chunk_id += 1
-                text_buffer = carry + text_buffer[cut:]
-                buffer_page = page
-
-    flush_buffer()
     return chunks

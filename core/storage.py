@@ -28,9 +28,12 @@ class StorageBackend(Protocol):
         ...
 
     def search(
-        self, query_embedding: np.ndarray, top_k: int = 5
+        self,
+        query_embedding: np.ndarray,
+        top_k: int = 5,
+        allowed_sources: set[str] | None = None,
     ) -> list[tuple[dict, float]]:
-        """Find top_k nearest chunks by cosine similarity."""
+        """Find top_k nearest chunks by cosine similarity. allowed_sources filters by source_file."""
         ...
 
 

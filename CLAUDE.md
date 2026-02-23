@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP + document metadata реализованы. 65 unit-тестов + 2 integration tests, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking реализованы. 57 unit-тестов + 2 integration tests, все зелёные.
 
 ## Stack (MVP)
 
@@ -40,8 +40,8 @@ docling-rag/
 │   ├── commands.py         # Click: init, add, search, list
 │   └── config_loader.py    # Загрузка config.yaml + дефолты
 ├── core/
-│   ├── parser.py           # Docling парсер (PDF, DOCX, MD)
-│   ├── chunker.py          # Chunker: 3200 символов, overlap 320, atomic table/code
+│   ├── parser.py           # Docling парсер → возвращает DoclingDocument (PDF, DOCX, MD)
+│   ├── chunker.py          # HybridChunker (docling-core): structure-aware + token-aware + headings
 │   ├── embedder.py         # Sentence Transformers all-MiniLM-L6-v2, L2-нормализация
 │   └── storage.py          # StorageBackend + DocumentRegistryBackend Protocol-абстракции
 ├── storage/
@@ -51,14 +51,16 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384, float32)
 │   ├── metadata.json       # Метаданные chunks
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 65 unit + 2 integration
-└── config.yaml             # chunk_size, overlap, top_k_results, embedding_model
+├── tests/                  # 57 unit + 2 integration
+└── config.yaml             # top_k_results, embedding_model (chunk_size удалён — HybridChunker авто)
 ```
 
 ## Gotchas
 
-- **Chunker без LangChain** — собственная реализация разбивки по предложениям; chunk_size в символах (3200 ≈ 800 токенов)
-- **Таблицы и code-блоки не разбиваются** — определяются по типу Docling-элемента, хранятся как отдельный chunk
+- **HybridChunker из docling-core** — разбивает по структуре документа (heading → секция), токен-лимит из tokenizer'а (all-MiniLM-L6-v2 → 256 токенов), мёрджит мелкие соседние chunks
+- **context_text vs text** — `chunk.context_text` = headings + text (используется для эмбеддингов); `chunk.text` = чистый текст (хранится и отображается в поиске)
+- **headings в metadata** — `metadata.json` хранит `headings: list[str]`; `search` отображает их как `[H1 > H2]`
+- **Таблицы и code-блоки** — HybridChunker сохраняет их как атомарные chunks (element_type = "table" или "code")
 - **storage.py — Protocol-абстракция** — file_storage (MVP) легко заменяется на pgvector без изменения вызывающего кода
 - **LLM нет в MVP** — `search` возвращает raw chunks с score, не генерирует ответы
 - **Изображения/диаграммы** — только OCR через Docling; Vision LLM (GPT-4V) — этап 2
@@ -68,7 +70,7 @@ docling-rag/
 - **`--config` флаг на всех командах** — `init`, `add`, `search` принимают `--config path/to/config.yaml`; `list` — только `--data-dir`
 - **Docling не парсит `.txt`** — для integration tests используй `.md`; поддерживаемые форматы: PDF, DOCX, MD
 - **DocRegistry следует паттерну FileStorage** — тот же `_atomic_save` через `os.replace()`, ключ = `source_file`
-- **CLI mock-паттерн** — в тестах патчить `cli.commands.DocRegistry` вместе с `FileStorage`/`Parser`/`Embedder`
+- **CLI mock-паттерн** — в тестах патчить `cli.commands.chunk_document` + `DocRegistry` + `FileStorage`/`Parser`/`Embedder`
 - **Фильтр поиска: пустой match → пустые результаты** — если `--tag`/`--topic` не совпадает ни с одним документом, `search` возвращает пустой список (не fallback на все документы)
 - **`--topic` сравнивается case-insensitive** — `"Software"` == `"software"` через `.lower()`
 

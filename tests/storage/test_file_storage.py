@@ -226,3 +226,24 @@ def test_search_with_none_allowed_sources_searches_all(storage):
     query = make_embeddings(1)[0]
     results = storage.search(query_embedding=query, top_k=4, allowed_sources=None)
     assert len(results) == 4
+
+
+def test_storage_saves_headings_in_metadata(storage):
+    chunks = [
+        Chunk(
+            text="chunk text",
+            source_file="doc.pdf",
+            chunk_id=0,
+            page_number=1,
+            element_type="text",
+            headings=["Chapter 1", "Section 1.1"],
+            context_text="Chapter 1\nSection 1.1\nchunk text",
+        )
+    ]
+    embeddings = make_embeddings(1)
+    storage.save(chunks, embeddings)
+
+    _, loaded_meta = storage.load()
+    assert loaded_meta[0]["headings"] == ["Chapter 1", "Section 1.1"]
+    # context_text is NOT stored — it's only for embedding
+    assert "context_text" not in loaded_meta[0]
