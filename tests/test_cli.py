@@ -34,16 +34,15 @@ def test_add_command_indexes_file(runner, tmp_path):
         patch("cli.commands.Parser") as MockParser,
         patch("cli.commands.Embedder") as MockEmbedder,
         patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.chunk_elements") as MockChunker,
+        patch("cli.commands.chunk_document") as MockChunkDoc,
+        patch("cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
-        mock_chunk.text = "Test content."
-        MockChunker.return_value = [mock_chunk]
+        mock_chunk.context_text = "Test heading\nTest content."
+        MockChunkDoc.return_value = [mock_chunk]
 
-        parser_instance = MockParser.return_value
         embedder_instance = MockEmbedder.return_value
         storage_instance = MockStorage.return_value
-
         embedder_instance.embed.return_value = np.ones((1, 384), dtype=np.float32)
 
         result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
@@ -51,8 +50,9 @@ def test_add_command_indexes_file(runner, tmp_path):
     assert result.exit_code == 0
     assert "chunk" in result.output.lower() or "добавлен" in result.output.lower()
 
-    parser_instance.parse.assert_called_once_with(test_doc)
-    embedder_instance.embed.assert_called_once_with([mock_chunk.text])
+    MockParser.return_value.parse.assert_called_once_with(test_doc)
+    # Embedding uses context_text, not text
+    embedder_instance.embed.assert_called_once_with([mock_chunk.context_text])
     storage_instance.append.assert_called_once()
 
 
@@ -151,12 +151,12 @@ def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
         patch("cli.commands.Parser") as MockParser,
         patch("cli.commands.Embedder") as MockEmbedder,
         patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.chunk_elements") as MockChunker,
+        patch("cli.commands.chunk_document") as MockChunkDoc,
         patch("cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
-        mock_chunk.text = "Content here."
-        MockChunker.return_value = [mock_chunk]
+        mock_chunk.context_text = "Content here."
+        MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
 
         result = runner.invoke(main, [
@@ -186,12 +186,12 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
         patch("cli.commands.Parser"),
         patch("cli.commands.Embedder") as MockEmbedder,
         patch("cli.commands.FileStorage"),
-        patch("cli.commands.chunk_elements") as MockChunker,
+        patch("cli.commands.chunk_document") as MockChunkDoc,
         patch("cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
-        mock_chunk.text = "Text."
-        MockChunker.return_value = [mock_chunk]
+        mock_chunk.context_text = "Text."
+        MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
 
         result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])

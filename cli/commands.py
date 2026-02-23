@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from cli.config_loader import load_config
-from core.chunker import chunk_elements
+from core.chunker import chunk_document
 from core.embedder import Embedder
 from core.parser import Parser
 from storage.doc_registry import DocRegistry
@@ -62,17 +62,16 @@ def add(file_path: str, data_dir: str, config: str, title: str | None, topic: st
     for file in files:
         click.echo(f"Обрабатываю: {file.name} ...", nl=False)
         try:
-            elements = parser.parse(file)
-            chunks = chunk_elements(
-                elements,
+            doc = parser.parse(file)
+            chunks = chunk_document(
+                doc,
                 source_file=str(file),
-                chunk_size=cfg["chunk_size"],
-                overlap=cfg["chunk_overlap"],
+                embedding_model=cfg["embedding_model"],
             )
             if not chunks:
                 click.echo(" (пустой документ, пропускаю)")
                 continue
-            texts = [c.text for c in chunks]
+            texts = [c.context_text for c in chunks]
             embeddings = embedder.embed(texts)
             storage.append(chunks, embeddings)
             registry.upsert(str(file), title=title, topic=topic, tags=list(tags))
