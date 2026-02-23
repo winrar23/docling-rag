@@ -327,3 +327,25 @@ def test_list_shows_dashes_for_docs_without_registry_entry(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "—" in result.output or "-" in result.output
+
+
+def test_search_shows_headings_in_output(runner, tmp_path):
+    """search results display headings when present."""
+    mock_results = [
+        ({"text": "Some content about patterns", "source_file": "doc.pdf",
+          "chunk_id": 0, "page_number": 2, "element_type": "text",
+          "headings": ["Chapter 3", "Design Patterns"]}, 0.91),
+    ]
+
+    with (
+        patch("cli.commands.Embedder") as MockEmbedder,
+        patch("cli.commands.FileStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.return_value = mock_results
+
+        result = runner.invoke(main, ["search", "patterns", "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "Chapter 3" in result.output
+    assert "Design Patterns" in result.output

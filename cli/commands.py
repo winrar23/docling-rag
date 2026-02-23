@@ -140,11 +140,13 @@ def search(
         source = Path(meta["source_file"]).name
         page = meta.get("page_number", "?")
         etype = meta.get("element_type", "text")
+        headings = meta.get("headings", [])
+        heading_str = " > ".join(headings) if headings else ""
         text_preview = meta["text"][:300].replace("\n", " ")
-        click.echo(
-            f"\n[{i}] score={score:.3f} | {source} | стр.{page} | {etype}\n"
-            f"    {text_preview}..."
-        )
+        click.echo(f"\n[{i}] score={score:.3f} | {source} | стр.{page} | {etype}")
+        if heading_str:
+            click.echo(f"    [{heading_str}]")
+        click.echo(f"    {text_preview}...")
 
     try:
         _log_search(cfg["log_file"], query, results[0][1] if results else 0.0)
