@@ -15,6 +15,7 @@ def _chunk_to_meta(chunk: Chunk) -> dict:
         "chunk_id": chunk.chunk_id,
         "page_number": chunk.page_number,
         "element_type": chunk.element_type,
+        "headings": chunk.headings,
     }
 
 
