@@ -92,6 +92,13 @@ cd .worktrees/dev
 git worktree list
 ```
 
+## Claude Code Skills
+
+Скилл для управления приложением: `.claude/skills/docling-rag-manager/SKILL.md`
+- Активируется автоматически при обсуждении индексации, поиска, управления документами
+- Покрывает: bootstrap (install + init), add, search, list + gotchas
+- Протестирован через RED-GREEN-REFACTOR (writing-skills методология)
+
 ## Docs
 
 Локальная документация в `docs/` (в .gitignore, не публикуется):
