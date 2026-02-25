@@ -42,6 +42,7 @@ logs/
 
 # Claude local overrides
 .claude.local.md
+.claude/settings.local.json
 
 # Tests
 .pytest_cache/
