@@ -28,11 +28,11 @@ docling-rag list              # список проиндексированны�
 # update <file> — P1, не реализован
 
 # Тесты
-python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (65 тестов)
+python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (57 тестов)
 python3 -m pytest tests/test_integration.py -m integration -s  # e2e тесты (~30 сек)
 ```
 
-## Architecture (MVP)
+## Architecture
 
 ```
 docling-rag/
@@ -47,7 +47,7 @@ docling-rag/
 ├── storage/
 │   ├── file_storage.py     # NumPy-хранилище с атомарными записями
 │   └── doc_registry.py     # Метаданные документов (title, topic, tags) → doc_index.json
-├── data/
+├── data/                   # всё содержимое в .gitignore
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384, float32)
 │   ├── metadata.json       # Метаданные chunks
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
@@ -102,6 +102,6 @@ git worktree list
 ## Docs
 
 Локальная документация в `docs/` (в .gitignore, не публикуется):
-- `docs/Feature_Specification.md` — полная спецификация, P0/P1/P2
+- `docs/PRD.md` — полная спецификация, P0/P1/P2
 - `docs/ARCHITECTURE.md` — компонентная архитектура, потоки данных, инварианты
 - `docs/FEATURES.md` — краткий фичелист со статусами

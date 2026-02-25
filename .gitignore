@@ -20,6 +20,7 @@ env/
 # Data (не коммитим индекс и документы)
 data/embeddings.npy
 data/metadata.json
+data/doc_index.json
 data/documents/
 
 # Docs (локальная документация, не публикуем)
