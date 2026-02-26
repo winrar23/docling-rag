@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP + document metadata + hybrid chunking реализованы. 73 unit-тестов + 3 integration tests, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы. 73 unit-тестов + 3 integration tests, все зелёные.
 
 ## Stack (MVP)
 
@@ -25,12 +25,13 @@ docling-rag add <path> --title "..." --topic "..." --tag arch --tag solid  # с 
 docling-rag search "<query>"  # семантический поиск (топ-5 результатов)
 docling-rag search "<query>" --tag arch --topic "architecture"  # с фильтром
 docling-rag list              # список проиндексированных документов
-docling-rag ask "<вопрос>"  # задать вопрос агенту (требуется agent_enabled: true + LM Studio)
+docling-rag ask "<вопрос>"    # задать вопрос агенту (требуется agent_enabled: true + LM Studio)
 # update <file> — P1, не реализован
 
 # Тесты
-python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (73 теста)
-python3 -m pytest tests/test_integration.py -m integration -s  # e2e тесты (~30 сек)
+python3 -m pytest tests/ -m "not integration and not slow"          # быстрые (73 теста)
+python3 -m pytest tests/test_integration.py -m integration -s       # e2e тесты (~30 сек)
+python3 -m pytest tests/test_agent_integration.py -m integration -s # agent e2e тест
 ```
 
 ## Architecture
@@ -77,8 +78,10 @@ docling-rag/
 - **Фильтр поиска: пустой match → пустые результаты** — если `--tag`/`--topic` не совпадает ни с одним документом, `search` возвращает пустой список (не fallback на все документы)
 - **`--topic` сравнивается case-insensitive** — `"Software"` == `"software"` через `.lower()`
 - **`ask` требует `.[agent]` и LM Studio** — `uv pip install -e ".[agent]"`, `agent_enabled: true` в config.yaml, LM Studio на `127.0.0.1:1234`
+- **pydantic-ai использует httpx** — `except ConnectionError` НЕ ловит реальные ошибки LM Studio; httpx бросает `httpx.ConnectError`. Проверяй: `isinstance(e, ConnectionError) or "ConnectError" in type(e).__name__`
 - **`_create_and_run_agent` — точка мока для тестов** — в тестах `ask` патчить `cli.commands._create_and_run_agent`, НЕ `create_agent` напрямую
-- **Lazy import core.agent** — старые тесты не требуют pydantic-ai установленного; `_import_agent_module()` разделяет import и execution
+- **Lazy import + testability** — для тестируемого lazy import guard создавай отдельную функцию (`_import_agent_module`), которую можно патчить через `patch("cli.commands._import_agent_module")`
+- **pydantic-ai API (~1.61+)** — `from pydantic_ai import Agent, RunContext`; `from pydantic_ai.models.openai import OpenAIChatModel`; `from pydantic_ai.providers.openai import OpenAIProvider`; `result.output` для получения ответа
 
 ## Non-Goals (MVP)
 
@@ -87,12 +90,12 @@ docling-rag/
 ## Git workflow
 
 - **`main`** — стабильная ветка, всегда рабочая
-- **`dev`** — ветка для экспериментальных фич, worktree в `.worktrees/dev/`
+- **`dev`** — ветка для экспериментальных фич, worktree в `.claude/worktrees/dev/`
 - Новые фичи разрабатываются в `dev`, после стабилизации мёрджатся в `main`
 
 ```bash
 # Переключиться в dev worktree
-cd .worktrees/dev
+cd .claude/worktrees/dev
 
 # Список worktrees
 git worktree list
