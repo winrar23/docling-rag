@@ -1,8 +1,8 @@
 # docling-rag
 
-**v0.1.1** — CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown, нарезает на chunks с учётом структуры документа (заголовки, таблицы, код), строит векторный индекс и отвечает на запросы ближайшими по смыслу фрагментами.
+**v0.1.2** — CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown, нарезает на chunks с учётом структуры документа (заголовки, таблицы, код), строит векторный индекс и отвечает на запросы ближайшими по смыслу фрагментами.
 
-> Поиск без LLM-генерации — возвращает сырые chunks с cosine similarity score.
+> Два режима: `search` — сырые chunks с cosine similarity score; `ask` — ответ на вопрос через локальный LLM-агент (100% оффлайн, через LM Studio).
 
 ---
 
@@ -121,6 +121,43 @@ docling-rag list [--data-dir data]
 
 ---
 
+### `ask` — задать вопрос агенту *(требует агентский режим)*
+
+```bash
+docling-rag ask "<вопрос>" [--top-k 5] [--data-dir data] [--config config.yaml]
+```
+
+Агент сам вызывает семантический поиск по индексу, а затем синтезирует ответ через локальный LLM. 100% оффлайн.
+
+**Требования:**
+1. Установить зависимость агента: `uv pip install -e ".[agent]"`
+2. Запустить [LM Studio](https://lmstudio.ai) и загрузить любую модель
+3. Включить агент в `config.yaml`:
+
+```yaml
+agent_enabled: true
+llm_model: "your-model-name"   # имя модели как оно отображается в LM Studio
+llm_base_url: "http://127.0.0.1:1234/v1"
+```
+
+```bash
+docling-rag ask "Что такое Data Vault и чем он отличается от Star Schema?"
+docling-rag ask "Объясни принцип dependency inversion" --tag arch --top-k 10
+```
+
+**Пример вывода:**
+
+```
+Data Vault — это методология моделирования данных, разработанная Дэном Линстедтом.
+В отличие от Star Schema, которая оптимизирована для аналитических запросов,
+Data Vault фокусируется на аудируемости и исторических данных через три типа таблиц:
+хабы (бизнес-ключи), линки (связи) и сателлиты (атрибуты).
+
+Источники: design.pdf (стр. 12), architecture.md (стр. 3)
+```
+
+---
+
 ## Конфигурация
 
 По умолчанию читается `config.yaml` из текущей директории:
@@ -130,15 +167,16 @@ embedding_model: all-MiniLM-L6-v2   # модель для эмбеддингов
 top_k_results: 5                     # результатов по умолчанию
 data_dir: data                       # папка хранилища
 log_file: logs/search.log            # лог поисковых запросов
+
+# Агентский режим (требует uv pip install -e ".[agent]")
+# agent_enabled: false
+# llm_base_url: "http://127.0.0.1:1234/v1"
+# llm_api_key: "lm-studio"
+# llm_model: "local-model"
+# agent_top_k: 5
 ```
 
 > Размер chunks управляется автоматически — `HybridChunker` использует токен-лимит embedding-модели (256 токенов для `all-MiniLM-L6-v2`).
-
-Путь к конфигу можно переопределить флагом `--config`:
-
-```bash
-docling-rag add ./docs/ --config /etc/myproject/config.yaml
-```
 
 > **Важно:** нельзя менять `embedding_model` после индексации — требуется полная переиндексация.
 
@@ -160,6 +198,8 @@ docling-rag add ./docs/ --config /etc/myproject/config.yaml
 Файл → Parser (Docling) → DoclingDocument → HybridChunker → Chunks → Embedder → FileStorage
                                                                                       ↓
 Запрос → Embedder ───────────────────── [DocRegistry filter] ──── cosine search → Результаты
+                                                                                      ↓
+ask → pydantic-ai Agent → search tool ──────────────────────────────────────── LLM ответ
 ```
 
 **Структура проекта:**
@@ -167,12 +207,14 @@ docling-rag add ./docs/ --config /etc/myproject/config.yaml
 ```
 docling-rag/
 ├── cli/
-│   ├── commands.py         # Click: init, add, search, list
+│   ├── commands.py         # Click: init, add, search, list, ask
 │   └── config_loader.py    # Загрузка config.yaml + дефолты
 ├── core/
 │   ├── parser.py           # Docling: PDF/DOCX/MD → DoclingDocument
 │   ├── chunker.py          # HybridChunker: structure-aware, headings, token-limit
 │   ├── embedder.py         # SentenceTransformer → L2-нормализованные векторы
+│   ├── search.py           # run_search() — общая логика для search и agent tool
+│   ├── agent.py            # pydantic-ai Agent с search tool (требует .[agent])
 │   └── storage.py          # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
 ├── storage/
 │   ├── file_storage.py     # NumPy (.npy) + JSON хранилище chunks
@@ -184,7 +226,7 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
 │   ├── metadata.json       # Метаданные chunks (включая headings)
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 57 unit-тестов + 2 integration
+├── tests/                  # 73 unit-тестов + 3 integration
 ├── config.yaml
 └── pyproject.toml
 ```
@@ -209,16 +251,28 @@ docling-rag/
 # Установка с dev-зависимостями
 uv pip install -e ".[dev]"
 
-# Быстрые тесты (57 unit)
+# Установка с поддержкой агента
+uv pip install -e ".[agent,dev]"
+
+# Быстрые тесты (73 unit)
 pytest tests/ -m "not integration and not slow"
 
 # Интеграционные тесты (реальный Docling + модель, ~30 сек)
 pytest tests/test_integration.py -v -m integration -s
+
+# Agent integration тест
+pytest tests/test_agent_integration.py -v -m integration -s
 ```
 
 ---
 
 ## Changelog
+
+### v0.1.2
+- **`ask` команда** — новый режим: задать вопрос и получить синтезированный ответ через локальный LLM (LM Studio). Агент сам вызывает семантический поиск и отвечает на языке вопроса. 100% оффлайн.
+- **`core/search.py`** — вынесена общая функция `run_search()`, переиспользуется в `search` и agent tool
+- **`core/agent.py`** — pydantic-ai Agent с search tool, динамическим system prompt (список документов), форматированием chunks для LLM
+- **Опциональная зависимость** `.[agent]` — `pydantic-ai[openai]>=1.0`
 
 ### v0.1.1
 - **HybridChunker** — заменил кастомный chunker на `docling-core` `HybridChunker`: structure-aware нарезка по заголовкам, автоматический токен-лимит, headings в результатах поиска
