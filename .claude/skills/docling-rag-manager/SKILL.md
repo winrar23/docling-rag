@@ -68,6 +68,18 @@ docling-rag search "query" --tag arch --topic "data vault" --top-k 10
 
 `--topic` comparison is case-insensitive. If filter matches zero docs → empty results (no fallback to all docs).
 
+### Ask (Agent Mode)
+
+Requires: `uv pip install -e ".[agent]"` + `agent_enabled: true` in `config.yaml` + LM Studio running.
+
+```bash
+# Ask a question (agent uses search tool, LLM synthesizes answer)
+docling-rag ask "What is Data Vault?"
+docling-rag ask "Explain hub tables" --top-k 10
+```
+
+Agent uses local LLM via LM Studio (`http://127.0.0.1:1234/v1`). 100% offline.
+
 ### List Indexed Documents
 
 ```bash
@@ -83,6 +95,7 @@ Shows all documents with chunk count, title, topic, and tags. This is the canoni
 | `init` | `--data-dir`, `--config` | `docling-rag init` |
 | `add` | `--data-dir`, `--config`, `--title`, `--topic`, `--tag` (repeatable) | `docling-rag add docs/ --tag arch` |
 | `search` | `--data-dir`, `--config`, `--top-k`, `--tag` (repeatable), `--topic` | `docling-rag search "hub tables"` |
+| `ask` | `--data-dir`, `--config`, `--top-k` | `docling-rag ask "question"` |
 | `list` | `--data-dir` **only** | `docling-rag list` |
 
 ## Common Mistakes
@@ -93,3 +106,6 @@ Shows all documents with chunk count, title, topic, and tags. This is the canoni
 - Changing embedding model requires full re-indexing (delete `data/` and re-add)
 - Always run `init` before first `add` — `data/` must exist
 - Empty `--tag`/`--topic` filter match → empty results, not fallback to all docs
+- `ask` requires `agent_enabled: true` in config.yaml — disabled by default
+- `ask` requires pydantic-ai installed: `uv pip install -e ".[agent]"`
+- `ask` requires LM Studio running on configured `llm_base_url`
