@@ -349,3 +349,61 @@ def test_search_shows_headings_in_output(runner, tmp_path):
     assert result.exit_code == 0
     assert "Chapter 3" in result.output
     assert "Design Patterns" in result.output
+
+
+# --- ask command tests ---
+
+
+def test_ask_disabled_by_default(runner, tmp_path):
+    """ask with agent_enabled=false shows activation hint."""
+    result = runner.invoke(main, ["ask", "test question", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "agent_enabled" in result.output or "отключён" in result.output.lower()
+
+
+def test_ask_shows_install_hint_when_pydantic_ai_missing(runner, tmp_path):
+    """ask with agent_enabled=true but pydantic-ai missing shows install hint."""
+    with patch("cli.commands.load_config", return_value={
+        "agent_enabled": True,
+        "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio",
+        "llm_model": "test-model",
+        "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2",
+    }):
+        with patch("cli.commands._import_agent_module", side_effect=ImportError("No module named 'pydantic_ai'")):
+            result = runner.invoke(main, ["ask", "question", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "install" in result.output.lower() or "pip" in result.output.lower() or "[agent]" in result.output
+
+
+def test_ask_calls_agent_and_prints_output(runner, tmp_path):
+    """ask with enabled agent calls _create_and_run_agent and prints result."""
+    with patch("cli.commands.load_config", return_value={
+        "agent_enabled": True,
+        "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio",
+        "llm_model": "test-model",
+        "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2",
+    }):
+        with patch("cli.commands._create_and_run_agent", return_value="Data Vault uses hubs, links, and satellites."):
+            result = runner.invoke(main, ["ask", "What is Data Vault?", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "Data Vault" in result.output
+
+
+def test_ask_handles_connection_error(runner, tmp_path):
+    """ask prints helpful message when LLM is unreachable."""
+    with patch("cli.commands.load_config", return_value={
+        "agent_enabled": True,
+        "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio",
+        "llm_model": "test-model",
+        "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2",
+    }):
+        with patch("cli.commands._create_and_run_agent", side_effect=ConnectionError("Connection refused")):
+            result = runner.invoke(main, ["ask", "test", "--data-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "подключиться" in result.output.lower() or "connection" in result.output.lower() or "lm studio" in result.output.lower()

@@ -186,6 +186,70 @@ def list_docs(data_dir: str) -> None:
         )
 
 
+def _import_agent_module():
+    """Import core.agent module. Separated for testability."""
+    from core.agent import create_agent, AgentDeps  # noqa: F401
+    return create_agent, AgentDeps
+
+
+def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -> str:
+    """Create agent and run synchronously. Separated for testability."""
+    create_agent, AgentDeps = _import_agent_module()
+    agent = create_agent(
+        model_name=cfg["llm_model"],
+        base_url=cfg["llm_base_url"],
+        api_key=cfg["llm_api_key"],
+    )
+    embedder = Embedder(model_name=cfg["embedding_model"])
+    storage = get_storage(data_dir)
+    registry = DocRegistry(data_dir=data_dir)
+    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)
+    result = agent.run_sync(question, deps=deps)
+    return result.output
+
+
+@main.command()
+@click.argument("question")
+@click.option("--data-dir", default="data", help="Storage directory")
+@click.option("--config", default="config.yaml", help="Path to config.yaml")
+@click.option("--top-k", default=None, type=int, help="Number of search results for agent")
+def ask(question: str, data_dir: str, config: str, top_k: int | None) -> None:
+    """Ask a question — agent synthesizes answer from indexed documents."""
+    cfg = load_config(config)
+
+    if not cfg.get("agent_enabled", False):
+        click.echo(
+            "Агент отключён. Включите в config.yaml:\n"
+            "  agent_enabled: true\n"
+            "  llm_model: <ваша модель в LM Studio>"
+        )
+        return
+
+    try:
+        _import_agent_module()
+    except ImportError:
+        click.echo(
+            "pydantic-ai не установлен. Установите:\n"
+            "  uv pip install -e '.[agent]'"
+        )
+        return
+
+    k = top_k if top_k is not None else cfg.get("agent_top_k", 5)
+
+    try:
+        answer = _create_and_run_agent(question, cfg, data_dir, k)
+        click.echo(answer)
+    except FileNotFoundError:
+        click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
+    except ConnectionError:
+        click.echo(
+            f"Не удалось подключиться к LLM по адресу {cfg['llm_base_url']}.\n"
+            "Убедитесь, что LM Studio запущен."
+        )
+    except Exception as e:
+        click.echo(f"Ошибка агента: {e}", err=True)
+
+
 def _log_search(log_file: str, query: str, top_score: float) -> None:
     path = Path(log_file)
     path.parent.mkdir(parents=True, exist_ok=True)
