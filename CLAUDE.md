@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP + document metadata + hybrid chunking реализованы. 57 unit-тестов + 2 integration tests, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking реализованы. 73 unit-тестов + 3 integration tests, все зелёные.
 
 ## Stack (MVP)
 
@@ -25,10 +25,11 @@ docling-rag add <path> --title "..." --topic "..." --tag arch --tag solid  # с 
 docling-rag search "<query>"  # семантический поиск (топ-5 результатов)
 docling-rag search "<query>" --tag arch --topic "architecture"  # с фильтром
 docling-rag list              # список проиндексированных документов
+docling-rag ask "<вопрос>"  # задать вопрос агенту (требуется agent_enabled: true + LM Studio)
 # update <file> — P1, не реализован
 
 # Тесты
-python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (57 тестов)
+python3 -m pytest tests/ -m "not integration and not slow"     # быстрые (73 теста)
 python3 -m pytest tests/test_integration.py -m integration -s  # e2e тесты (~30 сек)
 ```
 
@@ -43,6 +44,8 @@ docling-rag/
 │   ├── parser.py           # Docling парсер → возвращает DoclingDocument (PDF, DOCX, MD)
 │   ├── chunker.py          # HybridChunker (docling-core): structure-aware + token-aware + headings
 │   ├── embedder.py         # Sentence Transformers all-MiniLM-L6-v2, L2-нормализация
+│   ├── search.py           # run_search() — переиспользуется в CLI search и agent tool
+│   ├── agent.py            # pydantic-ai Agent: search tool + dynamic prompt (требует .[agent])
 │   └── storage.py          # StorageBackend + DocumentRegistryBackend Protocol-абстракции
 ├── storage/
 │   ├── file_storage.py     # NumPy-хранилище с атомарными записями
@@ -51,7 +54,7 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384, float32)
 │   ├── metadata.json       # Метаданные chunks
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 57 unit + 2 integration
+├── tests/                  # 73 unit + 3 integration
 └── config.yaml             # top_k_results, embedding_model (chunk_size удалён — HybridChunker авто)
 ```
 
@@ -73,6 +76,9 @@ docling-rag/
 - **CLI mock-паттерн** — в тестах патчить `cli.commands.chunk_document` + `DocRegistry` + `FileStorage`/`Parser`/`Embedder`
 - **Фильтр поиска: пустой match → пустые результаты** — если `--tag`/`--topic` не совпадает ни с одним документом, `search` возвращает пустой список (не fallback на все документы)
 - **`--topic` сравнивается case-insensitive** — `"Software"` == `"software"` через `.lower()`
+- **`ask` требует `.[agent]` и LM Studio** — `uv pip install -e ".[agent]"`, `agent_enabled: true` в config.yaml, LM Studio на `127.0.0.1:1234`
+- **`_create_and_run_agent` — точка мока для тестов** — в тестах `ask` патчить `cli.commands._create_and_run_agent`, НЕ `create_agent` напрямую
+- **Lazy import core.agent** — старые тесты не требуют pydantic-ai установленного; `_import_agent_module()` разделяет import и execution
 
 ## Non-Goals (MVP)
 
