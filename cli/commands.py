@@ -8,6 +8,7 @@ from cli.config_loader import load_config
 from core.chunker import chunk_document
 from core.embedder import Embedder
 from core.parser import Parser
+from core.search import run_search
 from storage.doc_registry import DocRegistry
 from storage.file_storage import FileStorage
 
@@ -125,8 +126,7 @@ def search(
         allowed_sources = set(matched)
 
     try:
-        query_emb = embedder.embed([query])[0]
-        results = storage.search(query_embedding=query_emb, top_k=k, allowed_sources=allowed_sources)
+        results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
         return
