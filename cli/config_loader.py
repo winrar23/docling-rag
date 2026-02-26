@@ -7,6 +7,11 @@ _DEFAULTS = {
     "top_k_results": 5,
     "data_dir": "data",
     "log_file": "logs/search.log",
+    "agent_enabled": False,
+    "llm_base_url": "http://127.0.0.1:1234/v1",
+    "llm_api_key": "lm-studio",
+    "llm_model": "local-model",
+    "agent_top_k": 5,
 }
 
 

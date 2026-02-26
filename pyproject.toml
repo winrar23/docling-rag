@@ -20,6 +20,9 @@ dev = [
     "pytest>=8.0.0",
     "pytest-mock>=3.12.0",
 ]
+agent = [
+    "pydantic-ai[openai]>=1.0",
+]
 
 [project.scripts]
 docling-rag = "cli:main"
