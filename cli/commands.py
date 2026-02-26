@@ -241,13 +241,15 @@ def ask(question: str, data_dir: str, config: str, top_k: int | None) -> None:
         click.echo(answer)
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
-    except ConnectionError:
-        click.echo(
-            f"Не удалось подключиться к LLM по адресу {cfg['llm_base_url']}.\n"
-            "Убедитесь, что LM Studio запущен."
-        )
     except Exception as e:
-        click.echo(f"Ошибка агента: {e}", err=True)
+        exc_type = type(e).__name__
+        if isinstance(e, ConnectionError) or "ConnectError" in exc_type or "ConnectionRefused" in exc_type:
+            click.echo(
+                f"Не удалось подключиться к LLM по адресу {cfg['llm_base_url']}.\n"
+                "Убедитесь, что LM Studio запущен."
+            )
+        else:
+            click.echo(f"Ошибка агента: {e}", err=True)
 
 
 def _log_search(log_file: str, query: str, top_score: float) -> None:

@@ -1,4 +1,3 @@
-import pytest
 from cli.config_loader import load_config
 
 
@@ -13,7 +12,7 @@ def test_defaults_include_agent_keys(tmp_path):
 
 
 def test_defaults_preserve_existing_keys(tmp_path):
-    """load_config with no config file returns agent defaults."""
+    """load_config with no config file preserves existing non-agent defaults."""
     cfg = load_config(tmp_path / "nonexistent.yaml")
     assert cfg["embedding_model"] == "all-MiniLM-L6-v2"
     assert cfg["top_k_results"] == 5

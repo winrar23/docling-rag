@@ -38,7 +38,7 @@ python3 -m pytest tests/test_integration.py -m integration -s  # e2e тесты 
 ```
 docling-rag/
 ├── cli/
-│   ├── commands.py         # Click: init, add, search, list
+│   ├── commands.py         # Click: init, add, search, list, ask
 │   └── config_loader.py    # Загрузка config.yaml + дефолты
 ├── core/
 │   ├── parser.py           # Docling парсер → возвращает DoclingDocument (PDF, DOCX, MD)
