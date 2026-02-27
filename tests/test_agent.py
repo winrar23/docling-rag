@@ -80,3 +80,12 @@ def test_create_agent_returns_agent():
     )
     # pydantic-ai Agent has run_sync method
     assert hasattr(agent, "run_sync")
+
+
+def test_system_prompt_contains_tool_info():
+    """SYSTEM_PROMPT explicitly lists available tools to prevent LLM hallucination."""
+    from core.agent import SYSTEM_PROMPT
+
+    assert "Available tools:" in SYSTEM_PROMPT
+    assert "search_documents" in SYSTEM_PROMPT
+    assert "query: str" in SYSTEM_PROMPT

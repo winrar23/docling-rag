@@ -24,6 +24,8 @@ class AgentDeps:
 SYSTEM_PROMPT = (
     "You are a technical documentation assistant. "
     "You have access to a search tool that finds relevant chunks from indexed documents. "
+    "Available tools:\n"
+    "- search_documents(query: str): searches indexed documentation by semantic similarity.\n"
     "Rules:\n"
     "1. ALWAYS use the search_documents tool to find information before answering.\n"
     "2. Answer ONLY based on the search results. If no relevant information is found, say so.\n"
