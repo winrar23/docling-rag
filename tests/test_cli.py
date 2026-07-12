@@ -6,11 +6,6 @@ from click.testing import CliRunner
 from cli import main
 
 
-@pytest.fixture
-def runner():
-    return CliRunner()
-
-
 def test_init_command_creates_data_dir(runner, tmp_path):
     result = runner.invoke(main, ["init", "--data-dir", str(tmp_path / "mystore")])
     assert result.exit_code == 0
