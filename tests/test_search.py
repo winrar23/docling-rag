@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock
 
-from core.search import run_search
+from docling_rag.core.search import run_search
 
 
 def test_run_search_returns_results():
@@ -41,7 +41,7 @@ def test_run_search_passes_allowed_sources():
 
 
 def test_run_search_propagates_file_not_found():
-    """run_search propagates FileNotFoundError from storage.search."""
+    """run_search propagates FileNotFoundError from docling_rag.storage.search."""
     mock_embedder = MagicMock()
     mock_embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
     mock_storage = MagicMock()

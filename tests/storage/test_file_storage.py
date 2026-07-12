@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from core.chunker import Chunk
-from storage.file_storage import FileStorage
+from docling_rag.core.chunker import Chunk
+from docling_rag.storage.file_storage import FileStorage
 
 
 def make_chunks(n=3, source="doc.pdf"):

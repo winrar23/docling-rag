@@ -24,5 +24,5 @@ def hermetic_config(tmp_path, monkeypatch):
     """CLI unit tests must never read the repo's live config.yaml or write repo logs/."""
     cfg = dict(_HERMETIC_DEFAULTS)
     cfg["log_file"] = str(tmp_path / "logs" / "search.log")
-    monkeypatch.setattr("cli.commands.load_config", lambda *_a, **_kw: dict(cfg))
+    monkeypatch.setattr("docling_rag.cli.commands.load_config", lambda *_a, **_kw: dict(cfg))
     return cfg

@@ -6,7 +6,7 @@ Smoke-тест: end-to-end пайплайн на реальном .md файле
 """
 import pytest
 from click.testing import CliRunner
-from cli import main
+from docling_rag.cli import main
 
 
 @pytest.mark.integration

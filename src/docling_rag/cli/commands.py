@@ -4,13 +4,13 @@ from pathlib import Path
 
 import click
 
-from cli.config_loader import load_config
-from core.chunker import chunk_document
-from core.embedder import Embedder
-from core.parser import Parser
-from core.search import run_search
-from storage.doc_registry import DocRegistry
-from storage.file_storage import FileStorage
+from docling_rag.cli.config_loader import load_config
+from docling_rag.core.chunker import chunk_document
+from docling_rag.core.embedder import Embedder
+from docling_rag.core.parser import Parser
+from docling_rag.core.search import run_search
+from docling_rag.storage.doc_registry import DocRegistry
+from docling_rag.storage.file_storage import FileStorage
 
 
 def get_storage(data_dir: str) -> FileStorage:
@@ -188,7 +188,7 @@ def list_docs(data_dir: str) -> None:
 
 def _import_agent_module():
     """Import core.agent module. Separated for testability."""
-    from core.agent import create_agent, AgentDeps  # noqa: F401
+    from docling_rag.core.agent import create_agent, AgentDeps  # noqa: F401
     return create_agent, AgentDeps
 
 

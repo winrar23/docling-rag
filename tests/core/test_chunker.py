@@ -1,4 +1,4 @@
-from core.chunker import Chunk
+from docling_rag.core.chunker import Chunk
 
 
 def test_chunk_has_headings_field():
@@ -27,7 +27,7 @@ def test_chunk_headings_default_empty():
     assert chunk.context_text == ""
 
 from unittest.mock import MagicMock, patch
-from core.chunker import chunk_document
+from docling_rag.core.chunker import chunk_document
 
 
 def _make_mock_doc_chunk(text, headings=None, label_value="text", page_no=1):
@@ -51,8 +51,8 @@ def test_chunk_document_returns_chunks_with_headings():
         _make_mock_doc_chunk("col|val\n---|---\na|b", headings=["Chapter 1", "Data"], label_value="table", page_no=2),
     ]
 
-    with patch("core.chunker.HybridChunker") as MockHybrid, \
-         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+    with patch("docling_rag.core.chunker.HybridChunker") as MockHybrid, \
+         patch("docling_rag.core.chunker.HuggingFaceTokenizer") as MockTok:
         MockTok.from_pretrained.return_value = MagicMock()
         instance = MockHybrid.return_value
         instance.chunk.return_value = iter(mock_chunks)
@@ -77,8 +77,8 @@ def test_chunk_document_returns_chunks_with_headings():
 def test_chunk_document_empty_doc_returns_empty():
     mock_doc = MagicMock()
 
-    with patch("core.chunker.HybridChunker") as MockHybrid, \
-         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+    with patch("docling_rag.core.chunker.HybridChunker") as MockHybrid, \
+         patch("docling_rag.core.chunker.HuggingFaceTokenizer") as MockTok:
         MockTok.from_pretrained.return_value = MagicMock()
         MockHybrid.return_value.chunk.return_value = iter([])
 
@@ -93,8 +93,8 @@ def test_chunk_document_no_prov_defaults_page_1():
     chunk = _make_mock_doc_chunk("text", label_value="text")
     chunk.meta.doc_items[0].prov = []  # no provenance
 
-    with patch("core.chunker.HybridChunker") as MockHybrid, \
-         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+    with patch("docling_rag.core.chunker.HybridChunker") as MockHybrid, \
+         patch("docling_rag.core.chunker.HuggingFaceTokenizer") as MockTok:
         MockTok.from_pretrained.return_value = MagicMock()
         MockHybrid.return_value.chunk.return_value = iter([chunk])
         MockHybrid.return_value.contextualize.return_value = "text"
@@ -108,8 +108,8 @@ def test_chunk_document_code_element_type():
     mock_doc = MagicMock()
     chunk = _make_mock_doc_chunk("print('hello')", label_value="code", page_no=3)
 
-    with patch("core.chunker.HybridChunker") as MockHybrid, \
-         patch("core.chunker.HuggingFaceTokenizer") as MockTok:
+    with patch("docling_rag.core.chunker.HybridChunker") as MockHybrid, \
+         patch("docling_rag.core.chunker.HuggingFaceTokenizer") as MockTok:
         MockTok.from_pretrained.return_value = MagicMock()
         MockHybrid.return_value.chunk.return_value = iter([chunk])
         MockHybrid.return_value.contextualize.return_value = "print('hello')"

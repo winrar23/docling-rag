@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from core.parser import Parser
+from docling_rag.core.parser import Parser
 
 
 def test_parse_returns_docling_document(tmp_path):
@@ -8,7 +8,7 @@ def test_parse_returns_docling_document(tmp_path):
     fake_file = tmp_path / "test.md"
     fake_file.write_text("# Hello")
 
-    with patch("core.parser.DocumentConverter") as MockConverter:
+    with patch("docling_rag.core.parser.DocumentConverter") as MockConverter:
         mock_result = MagicMock()
         MockConverter.return_value.convert.return_value = mock_result
 

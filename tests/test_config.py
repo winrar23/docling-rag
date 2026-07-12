@@ -1,4 +1,4 @@
-from cli.config_loader import load_config
+from docling_rag.cli.config_loader import load_config
 
 
 def test_defaults_include_agent_keys(tmp_path):

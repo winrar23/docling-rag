@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from core.embedder import Embedder
+from docling_rag.core.embedder import Embedder
 
 
 def test_embedder_returns_numpy_array():

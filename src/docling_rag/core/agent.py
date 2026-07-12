@@ -7,10 +7,10 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from core.embedder import Embedder
-from core.search import run_search
-from storage.doc_registry import DocRegistry
-from storage.file_storage import FileStorage
+from docling_rag.core.embedder import Embedder
+from docling_rag.core.search import run_search
+from docling_rag.storage.doc_registry import DocRegistry
+from docling_rag.storage.file_storage import FileStorage
 
 
 @dataclass

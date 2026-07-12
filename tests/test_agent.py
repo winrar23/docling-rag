@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 def test_format_search_results_with_results():
     """format_search_results formats chunks for LLM consumption."""
-    from core.agent import format_search_results
+    from docling_rag.core.agent import format_search_results
 
     results = [
         ({"text": "Data Vault uses hubs and links.", "source_file": "dv.pdf",
@@ -22,7 +22,7 @@ def test_format_search_results_with_results():
 
 def test_format_search_results_empty():
     """format_search_results returns informative message for empty results."""
-    from core.agent import format_search_results
+    from docling_rag.core.agent import format_search_results
 
     output = format_search_results([])
     assert len(output) > 0  # Should return a message, not empty string
@@ -30,7 +30,7 @@ def test_format_search_results_empty():
 
 def test_build_doc_list_with_documents():
     """_build_doc_list formats registry entries for system prompt."""
-    from core.agent import _build_doc_list
+    from docling_rag.core.agent import _build_doc_list
 
     mock_registry = MagicMock()
     mock_registry.load.return_value = {
@@ -46,7 +46,7 @@ def test_build_doc_list_with_documents():
 
 def test_build_doc_list_empty():
     """_build_doc_list handles empty registry."""
-    from core.agent import _build_doc_list
+    from docling_rag.core.agent import _build_doc_list
 
     mock_registry = MagicMock()
     mock_registry.load.return_value = {}
@@ -57,7 +57,7 @@ def test_build_doc_list_empty():
 
 def test_agent_deps_dataclass():
     """AgentDeps can be created with required fields."""
-    from core.agent import AgentDeps
+    from docling_rag.core.agent import AgentDeps
 
     deps = AgentDeps(
         embedder=MagicMock(),
@@ -71,7 +71,7 @@ def test_agent_deps_dataclass():
 
 def test_create_agent_returns_agent():
     """create_agent returns a pydantic-ai Agent instance."""
-    from core.agent import create_agent
+    from docling_rag.core.agent import create_agent
 
     agent = create_agent(
         model_name="test-model",
@@ -84,7 +84,7 @@ def test_create_agent_returns_agent():
 
 def test_system_prompt_contains_tool_info():
     """SYSTEM_PROMPT explicitly lists available tools to prevent LLM hallucination."""
-    from core.agent import SYSTEM_PROMPT
+    from docling_rag.core.agent import SYSTEM_PROMPT
 
     assert "Available tools:" in SYSTEM_PROMPT
     assert "search_documents" in SYSTEM_PROMPT

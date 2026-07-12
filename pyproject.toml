@@ -25,11 +25,10 @@ agent = [
 ]
 
 [project.scripts]
-docling-rag = "cli:main"
+docling-rag = "docling_rag.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "storage*", "cli*"]
+where = ["src"]
 
 [tool.pytest.ini_options]
 markers = [

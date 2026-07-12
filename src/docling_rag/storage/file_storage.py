@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.chunker import Chunk
+from docling_rag.core.chunker import Chunk
 
 
 def _chunk_to_meta(chunk: Chunk) -> dict:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from core.embedder import Embedder
-from storage.file_storage import FileStorage
+from docling_rag.core.embedder import Embedder
+from docling_rag.storage.file_storage import FileStorage
 
 
 def run_search(

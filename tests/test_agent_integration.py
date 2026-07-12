@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch
 from click.testing import CliRunner
 
-from cli import main
+from docling_rag.cli import main
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_ask_end_to_end_with_mocked_llm(runner, tmp_path):
 
     # 4. Ask with enabled agent and mocked LLM response
     with (
-        patch("cli.commands.load_config", return_value={
+        patch("docling_rag.cli.commands.load_config", return_value={
             "agent_enabled": True,
             "llm_base_url": "http://127.0.0.1:1234/v1",
             "llm_api_key": "lm-studio",
@@ -41,7 +41,7 @@ def test_ask_end_to_end_with_mocked_llm(runner, tmp_path):
             "agent_top_k": 5,
             "embedding_model": "all-MiniLM-L6-v2",
         }),
-        patch("cli.commands._create_and_run_agent", return_value="Data Vault is a modeling methodology using hubs, links, and satellites."),
+        patch("docling_rag.cli.commands._create_and_run_agent", return_value="Data Vault is a modeling methodology using hubs, links, and satellites."),
     ):
         result = runner.invoke(main, [
             "ask", "What is Data Vault?",

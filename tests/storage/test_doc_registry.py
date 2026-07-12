@@ -1,7 +1,7 @@
 import json
 import pytest
 from pathlib import Path
-from storage.doc_registry import DocRegistry
+from docling_rag.storage.doc_registry import DocRegistry
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 # core/storage.py
 from typing import Protocol
 import numpy as np
-from core.chunker import Chunk
+from docling_rag.core.chunker import Chunk
 
 
 class StorageBackend(Protocol):
