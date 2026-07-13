@@ -215,7 +215,7 @@ docling-rag/
 │   ├── embedder.py         # SentenceTransformer → L2-нормализованные векторы
 │   ├── search.py           # run_search() — общая логика для search и agent tool
 │   ├── agent.py            # pydantic-ai Agent с search tool (требует .[agent])
-│   └── storage.py          # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
+│   └── protocols.py        # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
 ├── storage/
 │   ├── file_storage.py     # NumPy (.npy) + JSON хранилище chunks
 │   └── doc_registry.py     # Реестр документов: title, topic, tags → doc_index.json
@@ -233,7 +233,7 @@ docling-rag/
 
 **HybridChunker** разбивает документ по структуре (heading → секция), сохраняет путь заголовков в каждом chunk'е (`[Chapter 1 > Section 1.2]`). Для эмбеддингов используется `context_text` (headings + text), для отображения — чистый `text`.
 
-**Protocol-абстракции** `core/storage.py` позволяют заменить NumPy-файлы на pgvector без изменения CLI-кода.
+**Protocol-абстракции** `core/protocols.py` позволяют заменить NumPy-файлы на pgvector без изменения CLI-кода.
 
 ---
 

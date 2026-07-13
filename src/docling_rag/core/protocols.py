@@ -7,8 +7,8 @@ from docling_rag.core.chunker import Chunk
 class StorageBackend(Protocol):
     """
     Protocol for storage backends. Implementations:
-    - storage.file_storage.FileStorage (MVP)
-    - storage.db_storage.DBStorage (Phase 2, pgvector)
+    - docling_rag.storage.file_storage.FileStorage (MVP)
+    - docling_rag.storage.db_storage.DBStorage (Phase 2, pgvector)
     """
 
     def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
@@ -40,8 +40,8 @@ class StorageBackend(Protocol):
 class DocumentRegistryBackend(Protocol):
     """
     Protocol for document-level metadata registries. Implementations:
-    - storage.doc_registry.DocRegistry (MVP)
-    - storage.db_registry.DBRegistry (Phase 2, PostgreSQL)
+    - docling_rag.storage.doc_registry.DocRegistry (MVP)
+    - docling_rag.storage.db_registry.DBRegistry (Phase 2, PostgreSQL)
     """
 
     def upsert(
