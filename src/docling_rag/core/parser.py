@@ -3,7 +3,7 @@ from pathlib import Path
 from docling.document_converter import DocumentConverter
 from docling_core.types.doc.document import DoclingDocument
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".md", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".md"}
 
 
 class Parser:

@@ -30,3 +30,8 @@ def test_parse_unsupported_format_raises(tmp_path):
     parser = Parser()
     with pytest.raises(ValueError, match="Unsupported"):
         parser.parse(str(bad_file))
+
+
+def test_txt_not_supported():
+    from docling_rag.core.parser import SUPPORTED_EXTENSIONS
+    assert ".txt" not in SUPPORTED_EXTENSIONS

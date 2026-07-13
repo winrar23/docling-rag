@@ -7,7 +7,7 @@ import click
 from docling_rag.cli.config_loader import load_config
 from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
-from docling_rag.core.parser import Parser
+from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.search import run_search
 from docling_rag.storage.doc_registry import DocRegistry
 from docling_rag.storage.file_storage import FileStorage
@@ -47,8 +47,7 @@ def add(file_path: str, data_dir: str, config: str, title: str | None, topic: st
     cfg = load_config(config)
     path = Path(file_path)
     files = list(path.rglob("*.*")) if path.is_dir() else [path]
-    supported = {".pdf", ".docx", ".md", ".txt"}
-    files = [f for f in files if f.suffix.lower() in supported]
+    files = [f for f in files if f.suffix.lower() in SUPPORTED_EXTENSIONS]
 
     if not files:
         click.echo("Нет поддерживаемых файлов для индексации.")

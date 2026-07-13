@@ -68,6 +68,13 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
     assert "Ошибка при обработке" in result.output or "corrupt" in result.output.lower()
 
 
+def test_add_skips_txt_files(runner, tmp_path):
+    """Docling can't parse .txt — add must not even try."""
+    (tmp_path / "notes.txt").write_text("plain text")
+    result = runner.invoke(main, ["add", str(tmp_path / "notes.txt"), "--data-dir", str(tmp_path / "d")])
+    assert "Нет поддерживаемых файлов" in result.output
+
+
 def test_search_command_returns_results(runner, tmp_path):
     mock_results = [
         ({"text": "SQL query example SELECT *", "source_file": "doc.pdf",
