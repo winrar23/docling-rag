@@ -79,10 +79,11 @@ def add(
     for file in files:
         click.echo(f"Обрабатываю: {file.name} ...", nl=False)
         try:
+            source = str(file.resolve())
             doc = parser.parse(file)
             chunks = chunk_document(
                 doc,
-                source_file=str(file),
+                source_file=source,
                 embedding_model=cfg["embedding_model"],
             )
             if not chunks:
@@ -90,8 +91,9 @@ def add(
                 continue
             texts = [c.context_text for c in chunks]
             embeddings = embedder.embed(texts)
+            storage.delete_by_source(source)
             storage.append(chunks, embeddings)
-            registry.upsert(str(file), title=title, topic=topic, tags=list(tags))
+            registry.upsert(source, title=title, topic=topic, tags=list(tags))
             total_chunks += len(chunks)
             click.echo(f" {len(chunks)} chunks")
         except Exception as e:

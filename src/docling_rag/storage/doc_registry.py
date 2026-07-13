@@ -46,13 +46,18 @@ class DocRegistry:
         topic: str | None,
         tags: list[str],
     ) -> None:
-        """Add or update entry. Preserves added_at if entry already exists."""
+        """Add or update entry.
+
+        Preserves added_at if entry already exists. Empty/None new values
+        (title, topic, tags) fall back to the existing entry's values so a
+        re-add without metadata flags does not wipe previously set metadata.
+        """
         data = self.load()
         existing = data.get(source_file, {})
         data[source_file] = {
-            "title": title,
-            "topic": topic,
-            "tags": tags,
+            "title": title if title is not None else existing.get("title"),
+            "topic": topic if topic is not None else existing.get("topic"),
+            "tags": tags if tags else existing.get("tags", []),
             "added_at": existing.get("added_at", datetime.now().isoformat(timespec="seconds")),
         }
         self._atomic_save(data)
