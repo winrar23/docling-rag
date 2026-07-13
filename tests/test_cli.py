@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from docling_rag.cli import main
+from docling_rag.core.errors import StorageError
 
 
 def test_init_command_creates_data_dir(runner, tmp_path):
@@ -111,6 +112,16 @@ def test_search_command_empty_storage(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "пустое" in result.output.lower() or "нет документов" in result.output.lower()
+
+
+def test_search_reports_corrupted_storage(runner, tmp_path):
+    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder, \
+         patch("docling_rag.cli.commands.FileStorage") as MockStorage:
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.side_effect = StorageError("2 vs 3")
+        result = runner.invoke(main, ["search", "q", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "повреждено" in result.output.lower()
 
 
 def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):

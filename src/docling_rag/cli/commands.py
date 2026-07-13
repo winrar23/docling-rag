@@ -7,6 +7,7 @@ import click
 from docling_rag.cli.config_loader import load_config, ConfigError
 from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
+from docling_rag.core.errors import StorageError
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.search import run_search
 from docling_rag.storage.doc_registry import DocRegistry
@@ -146,6 +147,8 @@ def search(
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
         return
+    except StorageError as e:
+        raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
 
     if not results:
         click.echo("Ничего не найдено.")
@@ -184,6 +187,8 @@ def list_docs(data_dir: str | None, config: str | None) -> None:
     except FileNotFoundError:
         click.echo("Хранилище пустое. Документов нет.")
         return
+    except StorageError as e:
+        raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
 
     sources: dict[str, int] = {}
     for m in metadata:
@@ -261,6 +266,8 @@ def ask(question: str, data_dir: str | None, config: str | None, top_k: int | No
         click.echo(answer)
     except FileNotFoundError:
         click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
+    except StorageError as e:
+        raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
     except Exception as e:
         exc_type = type(e).__name__
         if isinstance(e, ConnectionError) or "ConnectError" in exc_type or "ConnectionRefused" in exc_type:
