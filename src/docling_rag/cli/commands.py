@@ -9,12 +9,13 @@ from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
 from docling_rag.core.errors import StorageError
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
+from docling_rag.core.protocols import StorageBackend
 from docling_rag.core.search import run_search
 from docling_rag.storage.doc_registry import DocRegistry
 from docling_rag.storage.file_storage import FileStorage
 
 
-def get_storage(data_dir: str) -> FileStorage:
+def get_storage(data_dir: str) -> StorageBackend:
     return FileStorage(data_dir=Path(data_dir))
 
 

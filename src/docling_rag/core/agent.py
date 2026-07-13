@@ -8,16 +8,15 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from docling_rag.core.embedder import Embedder
+from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
 from docling_rag.core.search import run_search
-from docling_rag.storage.doc_registry import DocRegistry
-from docling_rag.storage.file_storage import FileStorage
 
 
 @dataclass
 class AgentDeps:
     embedder: Embedder
-    storage: FileStorage
-    registry: DocRegistry
+    storage: StorageBackend
+    registry: DocumentRegistryBackend
     top_k: int
 
 
@@ -70,7 +69,7 @@ def format_search_results(results: list[tuple[dict, float]]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_doc_list(registry: DocRegistry) -> str:
+def _build_doc_list(registry: DocumentRegistryBackend) -> str:
     """Format indexed documents list for dynamic system prompt."""
     doc_index = registry.load()
     if not doc_index:

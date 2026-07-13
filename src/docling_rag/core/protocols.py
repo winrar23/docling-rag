@@ -1,4 +1,4 @@
-# core/storage.py
+# core/protocols.py
 from typing import Protocol
 import numpy as np
 from docling_rag.core.chunker import Chunk
