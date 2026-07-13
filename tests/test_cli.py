@@ -3,12 +3,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
-from cli import main
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
+from docling_rag.cli import main
+from docling_rag.core.errors import StorageError
 
 
 def test_init_command_creates_data_dir(runner, tmp_path):
@@ -19,7 +15,7 @@ def test_init_command_creates_data_dir(runner, tmp_path):
 
 
 def test_list_command_empty_storage(runner, tmp_path):
-    with patch("cli.commands.FileStorage") as MockStorage:
+    with patch("docling_rag.cli.commands.FileStorage") as MockStorage:
         MockStorage.return_value.load.side_effect = FileNotFoundError
         result = runner.invoke(main, ["list", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0
@@ -31,11 +27,11 @@ def test_add_command_indexes_file(runner, tmp_path):
     test_doc.write_text("# Test\n\nThis is a test document.\n")
 
     with (
-        patch("cli.commands.Parser") as MockParser,
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.chunk_document") as MockChunkDoc,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Parser") as MockParser,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
         mock_chunk.context_text = "Test heading\nTest content."
@@ -52,7 +48,7 @@ def test_add_command_indexes_file(runner, tmp_path):
 
     MockParser.return_value.parse.assert_called_once_with(test_doc)
     # Embedding uses context_text, not text
-    embedder_instance.embed.assert_called_once_with([mock_chunk.context_text])
+    embedder_instance.embed.assert_called_once_with([mock_chunk.context_text], batch_size=128)
     storage_instance.append.assert_called_once()
 
 
@@ -61,16 +57,23 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
     test_doc.write_bytes(b"%PDF-1.4 corrupted content")
 
     with (
-        patch("cli.commands.Parser") as MockParser,
-        patch("cli.commands.Embedder"),
-        patch("cli.commands.FileStorage"),
+        patch("docling_rag.cli.commands.Parser") as MockParser,
+        patch("docling_rag.cli.commands.Embedder"),
+        patch("docling_rag.cli.commands.FileStorage"),
     ):
         MockParser.return_value.parse.side_effect = Exception("corrupt PDF")
 
         result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
 
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "Ошибка при обработке" in result.output or "corrupt" in result.output.lower()
+
+
+def test_add_skips_txt_files(runner, tmp_path):
+    """Docling can't parse .txt — add must not even try."""
+    (tmp_path / "notes.txt").write_text("plain text")
+    result = runner.invoke(main, ["add", str(tmp_path / "notes.txt"), "--data-dir", str(tmp_path / "d")])
+    assert "Нет поддерживаемых файлов" in result.output
 
 
 def test_search_command_returns_results(runner, tmp_path):
@@ -82,8 +85,8 @@ def test_search_command_returns_results(runner, tmp_path):
     ]
 
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockStorage.return_value.search.return_value = mock_results
@@ -99,16 +102,26 @@ def test_search_command_returns_results(runner, tmp_path):
 
 def test_search_command_empty_storage(runner, tmp_path):
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockStorage.return_value.search.side_effect = FileNotFoundError
 
         result = runner.invoke(main, ["search", "query", "--data-dir", str(tmp_path)])
 
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "пустое" in result.output.lower() or "нет документов" in result.output.lower()
+
+
+def test_search_reports_corrupted_storage(runner, tmp_path):
+    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder, \
+         patch("docling_rag.cli.commands.FileStorage") as MockStorage:
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.side_effect = StorageError("2 vs 3")
+        result = runner.invoke(main, ["search", "q", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "повреждено" in result.output.lower()
 
 
 def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):
@@ -126,8 +139,8 @@ def test_search_does_not_crash_when_log_raises_oserror(runner, tmp_path):
         return real_open(file, *args, **kwargs)
 
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
         patch("builtins.open", side_effect=patched_open),
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -148,11 +161,11 @@ def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
     test_doc.write_text("# Book\n\nContent here.\n")
 
     with (
-        patch("cli.commands.Parser") as MockParser,
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.chunk_document") as MockChunkDoc,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Parser") as MockParser,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
         mock_chunk.context_text = "Content here."
@@ -170,7 +183,7 @@ def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
 
     assert result.exit_code == 0
     MockRegistry.return_value.upsert.assert_called_once_with(
-        str(test_doc),
+        str(test_doc.resolve()),
         title="My Book",
         topic="architecture",
         tags=["arch", "solid"],
@@ -183,11 +196,11 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
     test_doc.write_text("# Plain\n\nText.\n")
 
     with (
-        patch("cli.commands.Parser"),
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage"),
-        patch("cli.commands.chunk_document") as MockChunkDoc,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage"),
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
         mock_chunk.context_text = "Text."
@@ -198,19 +211,59 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
 
     assert result.exit_code == 0
     MockRegistry.return_value.upsert.assert_called_once_with(
-        str(test_doc),
+        str(test_doc.resolve()),
         title=None,
         topic=None,
         tags=[],
     )
 
 
+def test_re_add_same_file_does_not_duplicate(runner, tmp_path):
+    """Re-adding a file must delete its old chunks first (idempotent add)."""
+    test_doc = tmp_path / "b.md"
+    test_doc.write_text("# T\n\ntext\n")
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry"),
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "t"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
+    expected_source = str(test_doc.resolve())
+    MockStorage.return_value.delete_by_source.assert_called_once_with(expected_source)
+    MockStorage.return_value.append.assert_called_once()
+
+
+def test_add_uses_resolved_path_as_source(runner, tmp_path):
+    test_doc = tmp_path / "c.md"
+    test_doc.write_text("# T\n\ntext\n")
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage"),
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
+    ):
+        mock_chunk = MagicMock(); mock_chunk.context_text = "t"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
+    MockRegistry.return_value.upsert.assert_called_once_with(
+        str(test_doc.resolve()), title=None, topic=None, tags=[],
+    )
+
+
 def test_search_with_tag_filter_passes_allowed_sources(runner, tmp_path):
     """search --tag filters to docs that have that tag."""
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockRegistry.return_value.load.return_value = {
@@ -236,9 +289,9 @@ def test_search_with_tag_filter_passes_allowed_sources(runner, tmp_path):
 def test_search_with_topic_filter_case_insensitive(runner, tmp_path):
     """search --topic filters case-insensitively."""
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockRegistry.return_value.load.return_value = {
@@ -265,9 +318,9 @@ def test_search_with_topic_filter_case_insensitive(runner, tmp_path):
 def test_search_filter_no_matching_docs_exits_gracefully(runner, tmp_path):
     """search --tag with no matching docs prints message and does not call storage."""
     with (
-        patch("cli.commands.Embedder"),
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.Embedder"),
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         MockRegistry.return_value.load.return_value = {
             "data.pdf": {"title": "D", "topic": "data", "tags": ["etl"], "added_at": "2026-01-01"},
@@ -287,8 +340,8 @@ def test_search_filter_no_matching_docs_exits_gracefully(runner, tmp_path):
 def test_list_shows_title_topic_tags(runner, tmp_path):
     """list command joins chunk counts with doc registry metadata."""
     with (
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         MockStorage.return_value.load.return_value = (
             np.zeros((5, 384), dtype=np.float32),
@@ -314,8 +367,8 @@ def test_list_shows_title_topic_tags(runner, tmp_path):
 def test_list_shows_dashes_for_docs_without_registry_entry(runner, tmp_path):
     """list shows — for docs that have no entry in doc_index.json."""
     with (
-        patch("cli.commands.FileStorage") as MockStorage,
-        patch("cli.commands.DocRegistry") as MockRegistry,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         MockStorage.return_value.load.return_value = (
             np.zeros((3, 384), dtype=np.float32),
@@ -338,8 +391,8 @@ def test_search_shows_headings_in_output(runner, tmp_path):
     ]
 
     with (
-        patch("cli.commands.Embedder") as MockEmbedder,
-        patch("cli.commands.FileStorage") as MockStorage,
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockStorage.return_value.search.return_value = mock_results
@@ -357,13 +410,13 @@ def test_search_shows_headings_in_output(runner, tmp_path):
 def test_ask_disabled_by_default(runner, tmp_path):
     """ask with agent_enabled=false shows activation hint."""
     result = runner.invoke(main, ["ask", "test question", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "agent_enabled" in result.output or "отключён" in result.output.lower()
 
 
 def test_ask_shows_install_hint_when_pydantic_ai_missing(runner, tmp_path):
     """ask with agent_enabled=true but pydantic-ai missing shows install hint."""
-    with patch("cli.commands.load_config", return_value={
+    with patch("docling_rag.cli.commands.load_config", return_value={
         "agent_enabled": True,
         "llm_base_url": "http://127.0.0.1:1234/v1",
         "llm_api_key": "lm-studio",
@@ -371,15 +424,15 @@ def test_ask_shows_install_hint_when_pydantic_ai_missing(runner, tmp_path):
         "agent_top_k": 5,
         "embedding_model": "all-MiniLM-L6-v2",
     }):
-        with patch("cli.commands._import_agent_module", side_effect=ImportError("No module named 'pydantic_ai'")):
+        with patch("docling_rag.cli.commands._import_agent_module", side_effect=ImportError("No module named 'pydantic_ai'")):
             result = runner.invoke(main, ["ask", "question", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "install" in result.output.lower() or "pip" in result.output.lower() or "[agent]" in result.output
 
 
 def test_ask_calls_agent_and_prints_output(runner, tmp_path):
     """ask with enabled agent calls _create_and_run_agent and prints result."""
-    with patch("cli.commands.load_config", return_value={
+    with patch("docling_rag.cli.commands.load_config", return_value={
         "agent_enabled": True,
         "llm_base_url": "http://127.0.0.1:1234/v1",
         "llm_api_key": "lm-studio",
@@ -387,15 +440,22 @@ def test_ask_calls_agent_and_prints_output(runner, tmp_path):
         "agent_top_k": 5,
         "embedding_model": "all-MiniLM-L6-v2",
     }):
-        with patch("cli.commands._create_and_run_agent", return_value="Data Vault uses hubs, links, and satellites."):
+        with patch("docling_rag.cli.commands._create_and_run_agent", return_value="Data Vault uses hubs, links, and satellites."):
             result = runner.invoke(main, ["ask", "What is Data Vault?", "--data-dir", str(tmp_path)])
     assert result.exit_code == 0
     assert "Data Vault" in result.output
 
 
+def test_explicit_config_path_missing_fails(runner, tmp_path, monkeypatch):
+    monkeypatch.setattr("docling_rag.cli.commands.load_config", __import__("docling_rag.cli.config_loader", fromlist=["load_config"]).load_config)
+    result = runner.invoke(main, ["search", "q", "--config", str(tmp_path / "typo.yml")])
+    assert result.exit_code != 0
+    assert "не найден" in result.output
+
+
 def test_ask_handles_connection_error(runner, tmp_path):
     """ask prints helpful message when LLM is unreachable."""
-    with patch("cli.commands.load_config", return_value={
+    with patch("docling_rag.cli.commands.load_config", return_value={
         "agent_enabled": True,
         "llm_base_url": "http://127.0.0.1:1234/v1",
         "llm_api_key": "lm-studio",
@@ -403,7 +463,40 @@ def test_ask_handles_connection_error(runner, tmp_path):
         "agent_top_k": 5,
         "embedding_model": "all-MiniLM-L6-v2",
     }):
-        with patch("cli.commands._create_and_run_agent", side_effect=ConnectionError("Connection refused")):
+        with patch("docling_rag.cli.commands._create_and_run_agent", side_effect=ConnectionError("Connection refused")):
             result = runner.invoke(main, ["ask", "test", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "подключиться" in result.output.lower() or "connection" in result.output.lower() or "lm studio" in result.output.lower()
+
+
+def test_add_exits_nonzero_when_no_supported_files(runner, tmp_path):
+    (tmp_path / "x.csv").write_text("a,b")
+    result = runner.invoke(main, ["add", str(tmp_path / "x.csv"), "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+
+
+def test_top_k_zero_rejected(runner, tmp_path):
+    result = runner.invoke(main, ["search", "q", "--top-k", "0", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "top-k" in result.output.lower() or "range" in result.output.lower()
+
+
+def _agent_cfg():
+    return {
+        "agent_enabled": True, "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio", "llm_model": "m", "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2", "data_dir": "data",
+        "top_k_results": 5, "log_file": "",
+    }
+
+
+def test_ask_detects_wrapped_connect_error(runner, tmp_path):
+    """openai.APIConnectionError wraps httpx.ConnectError as __cause__ — must be detected."""
+    httpx = pytest.importorskip("httpx")
+    wrapper = Exception("Connection error.")  # имя типа НЕ содержит 'ConnectError'
+    wrapper.__cause__ = httpx.ConnectError("All connection attempts failed")
+    with patch("docling_rag.cli.commands.load_config", return_value=_agent_cfg()), \
+         patch("docling_rag.cli.commands._create_and_run_agent", side_effect=wrapper):
+        result = runner.invoke(main, ["ask", "q", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "lm studio" in result.output.lower() or "подключиться" in result.output.lower()

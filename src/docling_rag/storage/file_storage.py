@@ -5,7 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from core.chunker import Chunk
+from docling_rag.core.chunker import Chunk
+from docling_rag.core.errors import StorageError
 
 
 def _chunk_to_meta(chunk: Chunk) -> dict:
@@ -79,12 +80,19 @@ class FileStorage:
         if not self._emb_path().exists():
             raise FileNotFoundError(f"Storage not found: {self._emb_path()}")
         if not self._meta_path().exists():
-            raise FileNotFoundError(
+            raise StorageError(
                 f"Storage is corrupted: embeddings.npy exists but metadata.json is missing in {self._dir}"
             )
         embeddings = np.load(self._emb_path())
-        with open(self._meta_path(), encoding="utf-8") as f:
-            metadata = json.load(f)
+        try:
+            with open(self._meta_path(), encoding="utf-8") as f:
+                metadata = json.load(f)
+        except json.JSONDecodeError as e:
+            raise StorageError(f"Storage is corrupted: invalid metadata.json in {self._dir}: {e}") from e
+        if embeddings.shape[0] != len(metadata):
+            raise StorageError(
+                f"Storage is corrupted: {embeddings.shape[0]} embeddings vs {len(metadata)} metadata entries"
+            )
         return embeddings, metadata
 
     def delete_by_source(self, source_file: str) -> None:

@@ -1,7 +1,7 @@
 import json
 import pytest
 from pathlib import Path
-from storage.doc_registry import DocRegistry
+from docling_rag.storage.doc_registry import DocRegistry
 
 
 @pytest.fixture
@@ -80,3 +80,21 @@ def test_delete_nonexistent_is_noop(registry):
 
 def test_delete_on_empty_is_noop(registry):
     registry.delete("anything.pdf")  # must not raise
+
+
+def test_upsert_preserves_metadata_when_new_values_empty(tmp_path):
+    reg = DocRegistry(data_dir=tmp_path)
+    reg.upsert("a.pdf", title="Book", topic="arch", tags=["solid"])
+    reg.upsert("a.pdf", title=None, topic=None, tags=[])  # re-add без флагов
+    entry = reg.get("a.pdf")
+    assert entry["title"] == "Book"
+    assert entry["topic"] == "arch"
+    assert entry["tags"] == ["solid"]
+
+
+def test_upsert_overwrites_metadata_when_new_values_given(tmp_path):
+    reg = DocRegistry(data_dir=tmp_path)
+    reg.upsert("a.pdf", title="Old", topic="x", tags=["t1"])
+    reg.upsert("a.pdf", title="New", topic="y", tags=["t2"])
+    entry = reg.get("a.pdf")
+    assert entry["title"] == "New" and entry["topic"] == "y" and entry["tags"] == ["t2"]

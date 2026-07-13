@@ -108,7 +108,7 @@ docling-rag search "layered architecture" --tag arch --tag ddd
 ### `list` — список проиндексированных документов
 
 ```bash
-docling-rag list [--data-dir data]
+docling-rag list [--data-dir data] [--config config.yaml]
 ```
 
 ```
@@ -206,19 +206,22 @@ ask → pydantic-ai Agent → search tool ────────────�
 
 ```
 docling-rag/
-├── cli/
-│   ├── commands.py         # Click: init, add, search, list, ask
-│   └── config_loader.py    # Загрузка config.yaml + дефолты
-├── core/
-│   ├── parser.py           # Docling: PDF/DOCX/MD → DoclingDocument
-│   ├── chunker.py          # HybridChunker: structure-aware, headings, token-limit
-│   ├── embedder.py         # SentenceTransformer → L2-нормализованные векторы
-│   ├── search.py           # run_search() — общая логика для search и agent tool
-│   ├── agent.py            # pydantic-ai Agent с search tool (требует .[agent])
-│   └── storage.py          # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
-├── storage/
-│   ├── file_storage.py     # NumPy (.npy) + JSON хранилище chunks
-│   └── doc_registry.py     # Реестр документов: title, topic, tags → doc_index.json
+├── src/docling_rag/
+│   ├── cli/
+│   │   ├── commands.py      # Click: init, add, search, list, ask
+│   │   └── config_loader.py # Загрузка config.yaml + дефолты
+│   ├── core/
+│   │   ├── parser.py     # Docling: PDF/DOCX/MD → DoclingDocument
+│   │   ├── chunker.py    # HybridChunker: structure-aware, headings, token-limit
+│   │   ├── embedder.py   # SentenceTransformer → L2-нормализованные векторы
+│   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store
+│   │   ├── search.py     # run_search() — общая логика для search и agent tool
+│   │   ├── agent.py      # pydantic-ai Agent с search tool (требует .[agent])
+│   │   ├── protocols.py  # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
+│   │   └── errors.py     # StorageError, UnsupportedFormatError, LLMUnavailableError
+│   └── storage/
+│       ├── file_storage.py  # NumPy (.npy) + JSON хранилище chunks
+│       └── doc_registry.py  # Реестр документов: title, topic, tags → doc_index.json
 ├── .claude/
 │   └── skills/
 │       └── docling-rag-manager/  # Claude Code skill для управления приложением
@@ -226,14 +229,14 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
 │   ├── metadata.json       # Метаданные chunks (включая headings)
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 73 unit-тестов + 3 integration
+├── tests/                  # 107 fast-тестов + 3 integration + 1 slow
 ├── config.yaml
 └── pyproject.toml
 ```
 
 **HybridChunker** разбивает документ по структуре (heading → секция), сохраняет путь заголовков в каждом chunk'е (`[Chapter 1 > Section 1.2]`). Для эмбеддингов используется `context_text` (headings + text), для отображения — чистый `text`.
 
-**Protocol-абстракции** `core/storage.py` позволяют заменить NumPy-файлы на pgvector без изменения CLI-кода.
+**Protocol-абстракции** `core/protocols.py` позволяют заменить NumPy-файлы на pgvector без изменения CLI-кода.
 
 ---
 
@@ -254,7 +257,7 @@ uv pip install -e ".[dev]"
 # Установка с поддержкой агента
 uv pip install -e ".[agent,dev]"
 
-# Быстрые тесты (73 unit)
+# Быстрые тесты (107 fast)
 pytest tests/ -m "not integration and not slow"
 
 # Интеграционные тесты (реальный Docling + модель, ~30 сек)

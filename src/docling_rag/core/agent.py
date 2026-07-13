@@ -7,17 +7,16 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from core.embedder import Embedder
-from core.search import run_search
-from storage.doc_registry import DocRegistry
-from storage.file_storage import FileStorage
+from docling_rag.core.embedder import Embedder
+from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
+from docling_rag.core.search import run_search
 
 
 @dataclass
 class AgentDeps:
     embedder: Embedder
-    storage: FileStorage
-    registry: DocRegistry
+    storage: StorageBackend
+    registry: DocumentRegistryBackend
     top_k: int
 
 
@@ -34,14 +33,13 @@ SYSTEM_PROMPT = (
     - ONLY search when users explicitly ask for information that would be in the knowledge base
     - For greetings (hi, hello, hey) → Just respond conversationally, no search needed
     - For general questions about yourself → Answer directly, no search needed
-    - For requests about specific topics or information → Use the appropriate search tool
+    - For requests about specific topics or information → Use the search_documents tool
 
     Rules:
-    1. ALWAYS use the search_documents tool to find information before answering.
-    2. Answer ONLY based on the search results. If no relevant information is found, say so.
-    3. CRITICAL! Cite sources: mention the file name and page number for each fact.
-    4. CRITICAL! Respond in the same language as the user's question.
-    5. Be concise and precise.
+    1. Answer ONLY based on the search results. If no relevant information is found, say so.
+    2. CRITICAL! Cite sources: mention the file name and page number for each fact.
+    3. CRITICAL! Respond in the same language as the user's question.
+    4. Be concise and precise.
     
     # Remember: Not every interaction requires a search. Use your judgment about when to search the knowledge base.
 
@@ -70,7 +68,7 @@ def format_search_results(results: list[tuple[dict, float]]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_doc_list(registry: DocRegistry) -> str:
+def _build_doc_list(registry: DocumentRegistryBackend) -> str:
     """Format indexed documents list for dynamic system prompt."""
     doc_index = registry.load()
     if not doc_index:
@@ -86,12 +84,13 @@ def _build_doc_list(registry: DocRegistry) -> str:
     return "\n".join(lines)
 
 
-def create_agent(model_name: str, base_url: str, api_key: str) -> Agent:
-    """Create pydantic-ai Agent with search tool for RAG."""
-    model = OpenAIChatModel(
-        model_name,
-        provider=OpenAIProvider(base_url=base_url, api_key=api_key),
-    )
+def build_lmstudio_model(model_name: str, base_url: str, api_key: str) -> OpenAIChatModel:
+    """LM Studio speaks Chat Completions — keep the explicit OpenAIChatModel (v2: 'openai:' prefix means Responses API)."""
+    return OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=base_url, api_key=api_key))
+
+
+def create_agent(model) -> Agent:
+    """Create pydantic-ai Agent with search tool for RAG. Accepts any Model (incl. TestModel)."""
     agent: Agent[AgentDeps, str] = Agent(
         model,
         deps_type=AgentDeps,

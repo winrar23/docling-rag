@@ -5,8 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from core.chunker import Chunk
-from storage.file_storage import FileStorage
+from docling_rag.core.chunker import Chunk
+from docling_rag.core.errors import StorageError
+from docling_rag.storage.file_storage import FileStorage
 
 
 def make_chunks(n=3, source="doc.pdf"):
@@ -247,3 +248,22 @@ def test_storage_saves_headings_in_metadata(storage):
     assert loaded_meta[0]["headings"] == ["Chapter 1", "Section 1.1"]
     # context_text is NOT stored — it's only for embedding
     assert "context_text" not in loaded_meta[0]
+
+
+def test_load_raises_on_length_mismatch(tmp_path):
+    storage = FileStorage(data_dir=tmp_path)
+    chunks = make_chunks(3)
+    storage.save(chunks, make_embeddings(3))
+    meta_path = tmp_path / "metadata.json"
+    meta = json.loads(meta_path.read_text())
+    meta_path.write_text(json.dumps(meta[:2]))  # рассинхрон: 3 эмбеддинга vs 2 меты
+    with pytest.raises(StorageError, match="3 embeddings vs 2"):
+        storage.load()
+
+
+def test_load_raises_on_corrupted_json(tmp_path):
+    storage = FileStorage(data_dir=tmp_path)
+    storage.save(make_chunks(1), make_embeddings(1))
+    (tmp_path / "metadata.json").write_text("{truncated")
+    with pytest.raises(StorageError, match="повреждено|corrupted"):
+        storage.load()

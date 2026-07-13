@@ -1,10 +1,35 @@
+import numpy as np
 import pytest
 from unittest.mock import MagicMock
+
+pytest.importorskip("pydantic_ai")
+from pydantic_ai.models.test import TestModel
+
+from docling_rag.core.agent import AgentDeps, create_agent, build_lmstudio_model
+from docling_rag.core.chunker import Chunk
+from docling_rag.storage.doc_registry import DocRegistry
+from docling_rag.storage.file_storage import FileStorage
+
+
+class FakeEmbedder:
+    def embed(self, texts):
+        return np.ones((len(texts), 4), dtype=np.float32) / 2.0
+
+
+def _seeded_deps(tmp_path) -> AgentDeps:
+    storage = FileStorage(data_dir=tmp_path)
+    registry = DocRegistry(data_dir=tmp_path)
+    chunk = Chunk(text="Data Vault uses hubs and satellites.", source_file="dv.pdf",
+                  chunk_id=0, page_number=42, element_type="text",
+                  headings=["Ch 2"], context_text="ctx")
+    storage.save([chunk], np.ones((1, 4), dtype=np.float32) / 2.0)
+    registry.upsert("dv.pdf", title="DV Book", topic="dwh", tags=["arch"])
+    return AgentDeps(embedder=FakeEmbedder(), storage=storage, registry=registry, top_k=3)
 
 
 def test_format_search_results_with_results():
     """format_search_results formats chunks for LLM consumption."""
-    from core.agent import format_search_results
+    from docling_rag.core.agent import format_search_results
 
     results = [
         ({"text": "Data Vault uses hubs and links.", "source_file": "dv.pdf",
@@ -22,7 +47,7 @@ def test_format_search_results_with_results():
 
 def test_format_search_results_empty():
     """format_search_results returns informative message for empty results."""
-    from core.agent import format_search_results
+    from docling_rag.core.agent import format_search_results
 
     output = format_search_results([])
     assert len(output) > 0  # Should return a message, not empty string
@@ -30,7 +55,7 @@ def test_format_search_results_empty():
 
 def test_build_doc_list_with_documents():
     """_build_doc_list formats registry entries for system prompt."""
-    from core.agent import _build_doc_list
+    from docling_rag.core.agent import _build_doc_list
 
     mock_registry = MagicMock()
     mock_registry.load.return_value = {
@@ -46,7 +71,7 @@ def test_build_doc_list_with_documents():
 
 def test_build_doc_list_empty():
     """_build_doc_list handles empty registry."""
-    from core.agent import _build_doc_list
+    from docling_rag.core.agent import _build_doc_list
 
     mock_registry = MagicMock()
     mock_registry.load.return_value = {}
@@ -57,7 +82,7 @@ def test_build_doc_list_empty():
 
 def test_agent_deps_dataclass():
     """AgentDeps can be created with required fields."""
-    from core.agent import AgentDeps
+    from docling_rag.core.agent import AgentDeps
 
     deps = AgentDeps(
         embedder=MagicMock(),
@@ -70,22 +95,40 @@ def test_agent_deps_dataclass():
 
 
 def test_create_agent_returns_agent():
-    """create_agent returns a pydantic-ai Agent instance."""
-    from core.agent import create_agent
-
-    agent = create_agent(
-        model_name="test-model",
-        base_url="http://localhost:1234/v1",
-        api_key="test-key",
-    )
+    """create_agent accepts any pydantic-ai Model (composable) and returns an Agent instance."""
+    agent = create_agent(TestModel())
     # pydantic-ai Agent has run_sync method
     assert hasattr(agent, "run_sync")
 
 
 def test_system_prompt_contains_tool_info():
     """SYSTEM_PROMPT explicitly lists available tools to prevent LLM hallucination."""
-    from core.agent import SYSTEM_PROMPT
+    from docling_rag.core.agent import SYSTEM_PROMPT
 
     assert "Available tools:" in SYSTEM_PROMPT
     assert "search_documents" in SYSTEM_PROMPT
     assert "query: str" in SYSTEM_PROMPT
+
+
+def test_agent_tool_executes_real_search(tmp_path):
+    """TestModel calls every tool once — search_documents must run against real storage."""
+    agent = create_agent(TestModel())
+    result = agent.run_sync("What is Data Vault?", deps=_seeded_deps(tmp_path))
+    assert isinstance(result.output, str)
+    messages = result.all_messages()
+    tool_returns = [p.content for m in messages for p in m.parts
+                    if getattr(p, "part_kind", "") == "tool-return"]
+    assert any("dv.pdf" in str(c) and "p.42" in str(c) for c in tool_returns)
+
+
+def test_dynamic_instructions_list_documents(tmp_path):
+    agent = create_agent(TestModel())
+    result = agent.run_sync("hi", deps=_seeded_deps(tmp_path))
+    req = result.all_messages()[0]
+    instructions = getattr(req, "instructions", "") or ""
+    assert "DV Book" in instructions
+
+
+def test_build_lmstudio_model_targets_base_url():
+    model = build_lmstudio_model("m", "http://127.0.0.1:1234/v1", "key")
+    assert type(model).__name__ == "OpenAIChatModel"
