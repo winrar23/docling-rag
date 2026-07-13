@@ -395,6 +395,13 @@ def test_ask_calls_agent_and_prints_output(runner, tmp_path):
     assert "Data Vault" in result.output
 
 
+def test_explicit_config_path_missing_fails(runner, tmp_path, monkeypatch):
+    monkeypatch.setattr("docling_rag.cli.commands.load_config", __import__("docling_rag.cli.config_loader", fromlist=["load_config"]).load_config)
+    result = runner.invoke(main, ["search", "q", "--config", str(tmp_path / "typo.yml")])
+    assert result.exit_code != 0
+    assert "не найден" in result.output
+
+
 def test_ask_handles_connection_error(runner, tmp_path):
     """ask prints helpful message when LLM is unreachable."""
     with patch("docling_rag.cli.commands.load_config", return_value={

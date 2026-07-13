@@ -1,4 +1,6 @@
-from docling_rag.cli.config_loader import load_config
+import pytest
+
+from docling_rag.cli.config_loader import load_config, ConfigError
 
 
 def test_defaults_include_agent_keys(tmp_path):
@@ -29,3 +31,34 @@ def test_user_config_overrides_agent_defaults(tmp_path):
     assert cfg["llm_model"] == "my-model"
     # Non-overridden defaults still present
     assert cfg["llm_base_url"] == "http://127.0.0.1:1234/v1"
+
+
+def test_explicit_missing_config_raises(tmp_path):
+    with pytest.raises(ConfigError, match="не найден"):
+        load_config(tmp_path / "nope.yaml", required=True)
+
+
+def test_default_missing_config_falls_back(tmp_path):
+    cfg = load_config(tmp_path / "config.yaml", required=False)
+    assert cfg["top_k_results"] == 5
+
+
+def test_non_dict_yaml_raises(tmp_path):
+    p = tmp_path / "bad.yaml"
+    p.write_text("- just\n- a list\n")
+    with pytest.raises(ConfigError, match="словар"):
+        load_config(p, required=True)
+
+
+def test_malformed_yaml_raises(tmp_path):
+    p = tmp_path / "broken.yaml"
+    p.write_text("key: [unclosed\n")
+    with pytest.raises(ConfigError):
+        load_config(p, required=True)
+
+
+def test_unknown_keys_warn(tmp_path, capsys):
+    p = tmp_path / "c.yaml"
+    p.write_text("top_k_result: 10\n")  # опечатка
+    load_config(p, required=True)
+    assert "top_k_result" in capsys.readouterr().err

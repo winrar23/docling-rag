@@ -1,5 +1,7 @@
 # cli/config_loader.py
+import sys
 from pathlib import Path
+
 import yaml
 
 _DEFAULTS = {
@@ -15,11 +17,26 @@ _DEFAULTS = {
 }
 
 
-def load_config(config_path: str | Path = "config.yaml") -> dict:
+class ConfigError(Exception):
+    """Invalid or missing configuration."""
+
+
+def load_config(config_path: str | Path = "config.yaml", *, required: bool = False) -> dict:
     cfg = dict(_DEFAULTS)
     path = Path(config_path)
-    if path.exists():
+    if not path.exists():
+        if required:
+            raise ConfigError(f"Конфиг не найден: {path}")
+        return cfg
+    try:
         with open(path, encoding="utf-8") as f:
             user_cfg = yaml.safe_load(f) or {}
-        cfg.update(user_cfg)
+    except yaml.YAMLError as e:
+        raise ConfigError(f"Невалидный YAML в {path}: {e}") from e
+    if not isinstance(user_cfg, dict):
+        raise ConfigError(f"Конфиг {path} должен быть YAML-словарём, получен {type(user_cfg).__name__}")
+    unknown = set(user_cfg) - set(_DEFAULTS)
+    if unknown:
+        print(f"Предупреждение: неизвестные ключи конфига: {', '.join(sorted(unknown))}", file=sys.stderr)
+    cfg.update(user_cfg)
     return cfg

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import click
 
-from docling_rag.cli.config_loader import load_config
+from docling_rag.cli.config_loader import load_config, ConfigError
 from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
@@ -17,6 +17,13 @@ def get_storage(data_dir: str) -> FileStorage:
     return FileStorage(data_dir=Path(data_dir))
 
 
+def _load_cfg(config: str | None) -> dict:
+    try:
+        return load_config(config or "config.yaml", required=config is not None)
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+
+
 @click.group()
 def main() -> None:
     """docling-rag — semantic search over technical documentation."""
@@ -24,27 +31,36 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--data-dir", default="data", help="Storage directory")
-@click.option("--config", default="config.yaml", help="Path to config.yaml")
-def init(data_dir: str, config: str) -> None:
+@click.option("--data-dir", default=None, help="Storage directory")
+@click.option("--config", default=None, help="Path to config.yaml")
+def init(data_dir: str | None, config: str | None) -> None:
     """Initialize storage."""
+    cfg = _load_cfg(config)
+    data_dir = data_dir or cfg["data_dir"]
     path = Path(data_dir)
     path.mkdir(parents=True, exist_ok=True)
-    cfg = load_config(config)
     Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
     click.echo(f"Инициализировано хранилище: {path.resolve()}")
 
 
 @main.command()
 @click.argument("file_path", type=click.Path(exists=True))
-@click.option("--data-dir", default="data", help="Storage directory")
-@click.option("--config", default="config.yaml", help="Path to config.yaml")
+@click.option("--data-dir", default=None, help="Storage directory")
+@click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--title", default=None, help="Document title")
 @click.option("--topic", default=None, help="Domain/topic of the document")
 @click.option("--tag", "tags", multiple=True, help="Tag (repeatable: --tag arch --tag solid)")
-def add(file_path: str, data_dir: str, config: str, title: str | None, topic: str | None, tags: tuple[str, ...]) -> None:
+def add(
+    file_path: str,
+    data_dir: str | None,
+    config: str | None,
+    title: str | None,
+    topic: str | None,
+    tags: tuple[str, ...],
+) -> None:
     """Add a document or directory to the index."""
-    cfg = load_config(config)
+    cfg = _load_cfg(config)
+    data_dir = data_dir or cfg["data_dir"]
     path = Path(file_path)
     files = list(path.rglob("*.*")) if path.is_dir() else [path]
     files = [f for f in files if f.suffix.lower() in SUPPORTED_EXTENSIONS]
@@ -87,21 +103,22 @@ def add(file_path: str, data_dir: str, config: str, title: str | None, topic: st
 
 @main.command()
 @click.argument("query")
-@click.option("--data-dir", default="data", help="Storage directory")
+@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--top-k", default=None, type=int, help="Number of results")
-@click.option("--config", default="config.yaml", help="Path to config.yaml")
+@click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--tag", "filter_tags", multiple=True, help="Filter to docs with this tag (repeatable)")
 @click.option("--topic", "filter_topic", default=None, help="Filter to docs with this topic (case-insensitive)")
 def search(
     query: str,
-    data_dir: str,
+    data_dir: str | None,
     top_k: int | None,
-    config: str,
+    config: str | None,
     filter_tags: tuple[str, ...],
     filter_topic: str | None,
 ) -> None:
     """Perform semantic search over the documentation."""
-    cfg = load_config(config)
+    cfg = _load_cfg(config)
+    data_dir = data_dir or cfg["data_dir"]
     k = top_k if top_k is not None else cfg["top_k_results"]
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
@@ -154,9 +171,12 @@ def search(
 
 
 @main.command("list")
-@click.option("--data-dir", default="data", help="Storage directory")
-def list_docs(data_dir: str) -> None:
+@click.option("--data-dir", default=None, help="Storage directory")
+@click.option("--config", default=None, help="Path to config.yaml")
+def list_docs(data_dir: str | None, config: str | None) -> None:
     """Show list of indexed documents."""
+    cfg = _load_cfg(config)
+    data_dir = data_dir or cfg["data_dir"]
     storage = get_storage(data_dir)
     registry = DocRegistry(data_dir=data_dir)
     try:
@@ -209,14 +229,15 @@ def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -
 
 @main.command()
 @click.argument("question")
-@click.option("--data-dir", default="data", help="Storage directory")
-@click.option("--config", default="config.yaml", help="Path to config.yaml")
+@click.option("--data-dir", default=None, help="Storage directory")
+@click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--top-k", default=None, type=int, help="Number of search results for agent")
-def ask(question: str, data_dir: str, config: str, top_k: int | None) -> None:
+def ask(question: str, data_dir: str | None, config: str | None, top_k: int | None) -> None:
     """Ask a question — agent synthesizes answer from indexed documents."""
-    cfg = load_config(config)
+    cfg = _load_cfg(config)
+    data_dir = data_dir or cfg["data_dir"]
 
-    if not cfg.get("agent_enabled", False):
+    if not cfg["agent_enabled"]:
         click.echo(
             "Агент отключён. Включите в config.yaml:\n"
             "  agent_enabled: true\n"
@@ -233,7 +254,7 @@ def ask(question: str, data_dir: str, config: str, top_k: int | None) -> None:
         )
         return
 
-    k = top_k if top_k is not None else cfg.get("agent_top_k", 5)
+    k = top_k if top_k is not None else cfg["agent_top_k"]
 
     try:
         answer = _create_and_run_agent(question, cfg, data_dir, k)
