@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock
 
-from docling_rag.core.search import run_search
+from docling_rag.core.search import run_search, resolve_allowed_sources
 
 
 def test_run_search_returns_results():
@@ -49,3 +49,29 @@ def test_run_search_propagates_file_not_found():
 
     with pytest.raises(FileNotFoundError):
         run_search("query", mock_embedder, mock_storage, top_k=5)
+
+
+def _registry_with(docs):
+    reg = MagicMock(); reg.load.return_value = docs; return reg
+
+
+DOCS = {
+    "a.pdf": {"title": "A", "topic": "Arch", "tags": ["arch", "solid"], "added_at": "x"},
+    "b.pdf": {"title": "B", "topic": "data", "tags": ["etl"], "added_at": "x"},
+}
+
+
+def test_no_filters_returns_none():
+    assert resolve_allowed_sources(_registry_with(DOCS)) is None
+
+
+def test_tag_filter_and_semantics():
+    assert resolve_allowed_sources(_registry_with(DOCS), tags=("arch", "solid")) == {"a.pdf"}
+
+
+def test_topic_case_insensitive():
+    assert resolve_allowed_sources(_registry_with(DOCS), topic="arch") == {"a.pdf"}
+
+
+def test_no_match_returns_empty_set():
+    assert resolve_allowed_sources(_registry_with(DOCS), tags=("nope",)) == set()

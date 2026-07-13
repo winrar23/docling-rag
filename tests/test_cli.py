@@ -30,7 +30,7 @@ def test_add_command_indexes_file(runner, tmp_path):
         patch("docling_rag.cli.commands.Parser") as MockParser,
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.FileStorage") as MockStorage,
-        patch("docling_rag.cli.commands.chunk_document") as MockChunkDoc,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
@@ -164,7 +164,7 @@ def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
         patch("docling_rag.cli.commands.Parser") as MockParser,
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.FileStorage") as MockStorage,
-        patch("docling_rag.cli.commands.chunk_document") as MockChunkDoc,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
@@ -199,7 +199,7 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
         patch("docling_rag.cli.commands.Parser"),
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.FileStorage"),
-        patch("docling_rag.cli.commands.chunk_document") as MockChunkDoc,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
@@ -226,7 +226,7 @@ def test_re_add_same_file_does_not_duplicate(runner, tmp_path):
         patch("docling_rag.cli.commands.Parser"),
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.FileStorage") as MockStorage,
-        patch("docling_rag.cli.commands.chunk_document") as MockChunkDoc,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DocRegistry"),
     ):
         mock_chunk = MagicMock()
@@ -246,7 +246,7 @@ def test_add_uses_resolved_path_as_source(runner, tmp_path):
         patch("docling_rag.cli.commands.Parser"),
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.FileStorage"),
-        patch("docling_rag.cli.commands.chunk_document") as MockChunkDoc,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DocRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock(); mock_chunk.context_text = "t"

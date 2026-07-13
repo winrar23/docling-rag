@@ -5,12 +5,12 @@ from pathlib import Path
 import click
 
 from docling_rag.cli.config_loader import load_config, ConfigError
-from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
 from docling_rag.core.errors import StorageError
+from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import StorageBackend
-from docling_rag.core.search import run_search
+from docling_rag.core.search import resolve_allowed_sources, run_search
 from docling_rag.storage.doc_registry import DocRegistry
 from docling_rag.storage.file_storage import FileStorage
 
@@ -74,37 +74,12 @@ def add(
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
     registry = DocRegistry(data_dir=data_dir)
-
-    total_chunks = 0
-    failed = 0
-    for file in files:
-        click.echo(f"Обрабатываю: {file.name} ...", nl=False)
-        try:
-            source = str(file.resolve())
-            doc = parser.parse(file)
-            chunks = chunk_document(
-                doc,
-                source_file=source,
-                embedding_model=cfg["embedding_model"],
-            )
-            if not chunks:
-                click.echo(" (пустой документ, пропускаю)")
-                continue
-            texts = [c.context_text for c in chunks]
-            embeddings = embedder.embed(texts)
-            storage.delete_by_source(source)
-            storage.append(chunks, embeddings)
-            registry.upsert(source, title=title, topic=topic, tags=list(tags))
-            total_chunks += len(chunks)
-            click.echo(f" {len(chunks)} chunks")
-        except Exception as e:
-            click.echo("")
-            click.echo(f"Ошибка при обработке {file}: {e}", err=True)
-            failed += 1
-            continue
-
-    click.echo(f"\nДобавлено {total_chunks} chunks из {len(files) - failed} файлов.")
-    if failed or total_chunks == 0:
+    report = index_files(files, parser, embedder, storage, registry,
+                         cfg["embedding_model"], title=title, topic=topic, tags=tags)
+    for src, err in report.errors:
+        click.echo(f"Ошибка при обработке {src}: {err}", err=True)
+    click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
+    if report.files_failed or report.chunks_added == 0:
         raise SystemExit(1)
 
 
@@ -127,26 +102,14 @@ def search(
     cfg = _load_cfg(config)
     data_dir = data_dir or cfg["data_dir"]
     k = top_k if top_k is not None else cfg["top_k_results"]
-    embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
     registry = DocRegistry(data_dir=data_dir)
 
-    allowed_sources: set[str] | None = None
-    if filter_tags or filter_topic:
-        doc_index = registry.load()
-        matched = []
-        for src, entry in doc_index.items():
-            tag_ok = all(t in entry.get("tags", []) for t in filter_tags) if filter_tags else True
-            topic_ok = (
-                (entry.get("topic") or "").lower() == filter_topic.lower()
-                if filter_topic else True
-            )
-            if tag_ok and topic_ok:
-                matched.append(src)
-        if not matched:
-            click.echo("Нет документов с такими тегами/темой.")
-            return
-        allowed_sources = set(matched)
+    allowed_sources = resolve_allowed_sources(registry, tags=filter_tags, topic=filter_topic)
+    if allowed_sources == set():
+        click.echo("Нет документов с такими тегами/темой.")
+        return
+    embedder = Embedder(model_name=cfg["embedding_model"])   # создаётся ПОСЛЕ early-return
 
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
