@@ -197,18 +197,14 @@ def _is_connection_error(e: BaseException) -> bool:
 
 def _import_agent_module():
     """Import core.agent module. Separated for testability."""
-    from docling_rag.core.agent import create_agent, AgentDeps  # noqa: F401
-    return create_agent, AgentDeps
+    from docling_rag.core.agent import create_agent, AgentDeps, build_lmstudio_model  # noqa: F401
+    return create_agent, AgentDeps, build_lmstudio_model
 
 
 def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
-    create_agent, AgentDeps = _import_agent_module()
-    agent = create_agent(
-        model_name=cfg["llm_model"],
-        base_url=cfg["llm_base_url"],
-        api_key=cfg["llm_api_key"],
-    )
+    create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
+    agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
     registry = DocRegistry(data_dir=data_dir)
