@@ -67,8 +67,7 @@ def add(
     files = [f for f in files if f.suffix.lower() in SUPPORTED_EXTENSIONS]
 
     if not files:
-        click.echo("Нет поддерживаемых файлов для индексации.")
-        return
+        raise click.ClickException("Нет поддерживаемых файлов для индексации.")
 
     parser = Parser()
     embedder = Embedder(model_name=cfg["embedding_model"])
@@ -76,6 +75,7 @@ def add(
     registry = DocRegistry(data_dir=data_dir)
 
     total_chunks = 0
+    failed = 0
     for file in files:
         click.echo(f"Обрабатываю: {file.name} ...", nl=False)
         try:
@@ -99,15 +99,18 @@ def add(
         except Exception as e:
             click.echo("")
             click.echo(f"Ошибка при обработке {file}: {e}", err=True)
+            failed += 1
             continue
 
-    click.echo(f"\nДобавлено {total_chunks} chunks из {len(files)} файлов.")
+    click.echo(f"\nДобавлено {total_chunks} chunks из {len(files) - failed} файлов.")
+    if failed or total_chunks == 0:
+        raise SystemExit(1)
 
 
 @main.command()
 @click.argument("query")
 @click.option("--data-dir", default=None, help="Storage directory")
-@click.option("--top-k", default=None, type=int, help="Number of results")
+@click.option("--top-k", default=None, type=click.IntRange(min=1), help="Number of results")
 @click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--tag", "filter_tags", multiple=True, help="Filter to docs with this tag (repeatable)")
 @click.option("--topic", "filter_topic", default=None, help="Filter to docs with this topic (case-insensitive)")
@@ -147,8 +150,7 @@ def search(
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
     except FileNotFoundError:
-        click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
-        return
+        raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
 
@@ -170,7 +172,7 @@ def search(
         click.echo(f"    {text_preview}...")
 
     try:
-        _log_search(cfg["log_file"], query, results[0][1] if results else 0.0)
+        _log_search(cfg["log_file"], query, results[0][1])
     except OSError as e:
         click.echo(f"Предупреждение: не удалось записать лог: {e}", err=True)
 
@@ -238,28 +240,26 @@ def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -
 @click.argument("question")
 @click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--config", default=None, help="Path to config.yaml")
-@click.option("--top-k", default=None, type=int, help="Number of search results for agent")
+@click.option("--top-k", default=None, type=click.IntRange(min=1), help="Number of search results for agent")
 def ask(question: str, data_dir: str | None, config: str | None, top_k: int | None) -> None:
     """Ask a question — agent synthesizes answer from indexed documents."""
     cfg = _load_cfg(config)
     data_dir = data_dir or cfg["data_dir"]
 
     if not cfg["agent_enabled"]:
-        click.echo(
+        raise click.ClickException(
             "Агент отключён. Включите в config.yaml:\n"
             "  agent_enabled: true\n"
             "  llm_model: <ваша модель в LM Studio>"
         )
-        return
 
     try:
         _import_agent_module()
     except ImportError:
-        click.echo(
+        raise click.ClickException(
             "pydantic-ai не установлен. Установите:\n"
             "  uv pip install -e '.[agent]'"
         )
-        return
 
     k = top_k if top_k is not None else cfg["agent_top_k"]
 
@@ -267,18 +267,17 @@ def ask(question: str, data_dir: str | None, config: str | None, top_k: int | No
         answer = _create_and_run_agent(question, cfg, data_dir, k)
         click.echo(answer)
     except FileNotFoundError:
-        click.echo("Хранилище пустое. Добавьте документы: docling-rag add <path>")
+        raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
     except Exception as e:
         exc_type = type(e).__name__
         if isinstance(e, ConnectionError) or "ConnectError" in exc_type or "ConnectionRefused" in exc_type:
-            click.echo(
+            raise click.ClickException(
                 f"Не удалось подключиться к LLM по адресу {cfg['llm_base_url']}.\n"
                 "Убедитесь, что LM Studio запущен."
-            )
-        else:
-            click.echo(f"Ошибка агента: {e}", err=True)
+            ) from e
+        raise click.ClickException(f"Ошибка агента: {e}") from e
 
 
 def _log_search(log_file: str, query: str, top_score: float) -> None:

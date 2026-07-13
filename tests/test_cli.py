@@ -65,7 +65,7 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
 
         result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
 
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "Ошибка при обработке" in result.output or "corrupt" in result.output.lower()
 
 
@@ -110,7 +110,7 @@ def test_search_command_empty_storage(runner, tmp_path):
 
         result = runner.invoke(main, ["search", "query", "--data-dir", str(tmp_path)])
 
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "пустое" in result.output.lower() or "нет документов" in result.output.lower()
 
 
@@ -410,7 +410,7 @@ def test_search_shows_headings_in_output(runner, tmp_path):
 def test_ask_disabled_by_default(runner, tmp_path):
     """ask with agent_enabled=false shows activation hint."""
     result = runner.invoke(main, ["ask", "test question", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "agent_enabled" in result.output or "отключён" in result.output.lower()
 
 
@@ -426,7 +426,7 @@ def test_ask_shows_install_hint_when_pydantic_ai_missing(runner, tmp_path):
     }):
         with patch("docling_rag.cli.commands._import_agent_module", side_effect=ImportError("No module named 'pydantic_ai'")):
             result = runner.invoke(main, ["ask", "question", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "install" in result.output.lower() or "pip" in result.output.lower() or "[agent]" in result.output
 
 
@@ -465,5 +465,17 @@ def test_ask_handles_connection_error(runner, tmp_path):
     }):
         with patch("docling_rag.cli.commands._create_and_run_agent", side_effect=ConnectionError("Connection refused")):
             result = runner.invoke(main, ["ask", "test", "--data-dir", str(tmp_path)])
-    assert result.exit_code == 0
+    assert result.exit_code != 0
     assert "подключиться" in result.output.lower() or "connection" in result.output.lower() or "lm studio" in result.output.lower()
+
+
+def test_add_exits_nonzero_when_no_supported_files(runner, tmp_path):
+    (tmp_path / "x.csv").write_text("a,b")
+    result = runner.invoke(main, ["add", str(tmp_path / "x.csv"), "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+
+
+def test_top_k_zero_rejected(runner, tmp_path):
+    result = runner.invoke(main, ["search", "q", "--top-k", "0", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "top-k" in result.output.lower() or "range" in result.output.lower()
