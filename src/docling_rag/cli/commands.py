@@ -214,6 +214,23 @@ def list_docs(data_dir: str | None, config: str | None) -> None:
         )
 
 
+def _is_connection_error(e: BaseException) -> bool:
+    """Walk the cause chain: httpx/openai wrap ConnectError several levels deep."""
+    try:
+        import httpx
+        conn_types: tuple[type, ...] = (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout)
+    except ImportError:
+        conn_types = (ConnectionError,)
+    seen: set[int] = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        if isinstance(cur, conn_types):
+            return True
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 def _import_agent_module():
     """Import core.agent module. Separated for testability."""
     from docling_rag.core.agent import create_agent, AgentDeps  # noqa: F401
@@ -271,8 +288,7 @@ def ask(question: str, data_dir: str | None, config: str | None, top_k: int | No
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
     except Exception as e:
-        exc_type = type(e).__name__
-        if isinstance(e, ConnectionError) or "ConnectError" in exc_type or "ConnectionRefused" in exc_type:
+        if _is_connection_error(e):
             raise click.ClickException(
                 f"Не удалось подключиться к LLM по адресу {cfg['llm_base_url']}.\n"
                 "Убедитесь, что LM Studio запущен."

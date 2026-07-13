@@ -479,3 +479,24 @@ def test_top_k_zero_rejected(runner, tmp_path):
     result = runner.invoke(main, ["search", "q", "--top-k", "0", "--data-dir", str(tmp_path)])
     assert result.exit_code != 0
     assert "top-k" in result.output.lower() or "range" in result.output.lower()
+
+
+def _agent_cfg():
+    return {
+        "agent_enabled": True, "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio", "llm_model": "m", "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2", "data_dir": "data",
+        "top_k_results": 5, "log_file": "",
+    }
+
+
+def test_ask_detects_wrapped_connect_error(runner, tmp_path):
+    """openai.APIConnectionError wraps httpx.ConnectError as __cause__ — must be detected."""
+    httpx = pytest.importorskip("httpx")
+    wrapper = Exception("Connection error.")  # имя типа НЕ содержит 'ConnectError'
+    wrapper.__cause__ = httpx.ConnectError("All connection attempts failed")
+    with patch("docling_rag.cli.commands.load_config", return_value=_agent_cfg()), \
+         patch("docling_rag.cli.commands._create_and_run_agent", side_effect=wrapper):
+        result = runner.invoke(main, ["ask", "q", "--data-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    assert "lm studio" in result.output.lower() or "подключиться" in result.output.lower()
