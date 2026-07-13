@@ -32,8 +32,9 @@ def index_files(
 ) -> IndexReport:
     report = IndexReport()
     for file in files:
-        source = str(Path(file).resolve())
+        source = str(file)
         try:
+            source = str(Path(file).resolve())
             doc = parser.parse(file)
             chunks = chunk_document(doc, source_file=source, embedding_model=embedding_model)
             if not chunks:
@@ -45,7 +46,7 @@ def index_files(
             registry.upsert(source, title=title, topic=topic, tags=list(tags))
             report.chunks_added += len(chunks)
             report.files_ok += 1
-        except Exception as e:  # batch loop: одна ошибка не роняет остальные файлы
+        except Exception as e:  # batch loop: one file's failure must not abort the rest
             report.files_failed += 1
             report.errors.append((source, f"{type(e).__name__}: {e}"))
     return report

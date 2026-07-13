@@ -109,7 +109,7 @@ def search(
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
         return
-    embedder = Embedder(model_name=cfg["embedding_model"])   # создаётся ПОСЛЕ early-return
+    embedder = Embedder(model_name=cfg["embedding_model"])   # constructed AFTER the early return — lazy Embedder
 
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
