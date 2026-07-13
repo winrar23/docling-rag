@@ -40,7 +40,7 @@ def index_files(
             if not chunks:
                 report.files_ok += 1
                 continue
-            embeddings = embedder.embed([c.context_text for c in chunks])
+            embeddings = embedder.embed([c.context_text for c in chunks], batch_size=128)
             storage.delete_by_source(source)
             storage.append(chunks, embeddings)
             registry.upsert(source, title=title, topic=topic, tags=list(tags))

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from docling_core.transforms.chunker import HybridChunker
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
@@ -40,6 +41,20 @@ def _extract_page_number(doc_chunk) -> int:
     return 1
 
 
+@lru_cache(maxsize=4)
+def _get_chunker(embedding_model: str) -> HybridChunker:
+    """
+    Get or create a cached HybridChunker for the given embedding model.
+
+    HybridChunker is cached per model to avoid repeated tokenizer initialization.
+    The cache size of 4 is sufficient for typical usage (one model at a time).
+    """
+    tokenizer = HuggingFaceTokenizer.from_pretrained(
+        f"sentence-transformers/{embedding_model}"
+    )
+    return HybridChunker(tokenizer=tokenizer)
+
+
 def chunk_document(
     dl_doc: DoclingDocument,
     source_file: str,
@@ -52,10 +67,7 @@ def chunk_document(
     HybridChunker splits by document structure, respects token limits
     of the embedding model, and merges small peer chunks.
     """
-    tokenizer = HuggingFaceTokenizer.from_pretrained(
-        f"sentence-transformers/{embedding_model}"
-    )
-    chunker = HybridChunker(tokenizer=tokenizer)
+    chunker = _get_chunker(embedding_model)
 
     chunks: list[Chunk] = []
     for chunk_id, doc_chunk in enumerate(chunker.chunk(dl_doc)):

@@ -43,3 +43,13 @@ def test_embedder_empty_list_returns_empty_array():
     embedder = Embedder()
     result = embedder.embed([])
     assert result.shape == (0, 384)
+
+
+def test_embed_passes_batch_size():
+    from unittest.mock import MagicMock
+    e = Embedder.__new__(Embedder)
+    e._model = MagicMock()
+    e._model.encode.return_value = np.ones((2, 4), dtype=np.float32)
+    e._dim = 4
+    e.embed(["a", "b"], batch_size=128)
+    assert e._model.encode.call_args.kwargs["batch_size"] == 128

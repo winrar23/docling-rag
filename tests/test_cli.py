@@ -48,7 +48,7 @@ def test_add_command_indexes_file(runner, tmp_path):
 
     MockParser.return_value.parse.assert_called_once_with(test_doc)
     # Embedding uses context_text, not text
-    embedder_instance.embed.assert_called_once_with([mock_chunk.context_text])
+    embedder_instance.embed.assert_called_once_with([mock_chunk.context_text], batch_size=128)
     storage_instance.append.assert_called_once()
 
 
