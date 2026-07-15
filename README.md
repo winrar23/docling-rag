@@ -55,6 +55,24 @@ docker compose --profile dev up api-dev    # hot-reload API на :8001
 Все данные лежат на путях хоста из `.env` (`DATA_DIR`, `PGDATA_DIR`, `HF_CACHE_DIR`,
 `UPLOADS_DIR`, `BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются.
 
+### PyTorch: CPU или GPU
+
+Образ собирается с **CPU-сборкой** PyTorch: GPU в контейнер не пробрасывается (Docker
+Desktop на macOS — это Linux-VM без доступа к Metal), а CUDA-сборка добавила бы ~4 ГБ
+бесполезных NVIDIA-библиотек (образ был бы ~6 ГБ вместо 2.4). CPU-сборка работает на
+любой машине; на функциональность выбор не влияет — только на скорость `add`/`search`.
+
+При установке на хост (`uv pip install -e ".[dev]"`):
+
+- **macOS (Apple Silicon)** — ничего выбирать не нужно: обычный wheel с PyPI уже включает
+  поддержку Apple-GPU (backend MPS, работает с объединённой памятью). CUDA-сборка на Mac
+  неприменима — CUDA есть только у NVIDIA.
+- **Linux/Windows с NVIDIA-картой** — дефолтный `pip install torch` (CUDA-сборка) ускорит
+  индексацию и OCR.
+- **Linux/Windows без NVIDIA** — экономнее CPU-сборка (минус ~4 ГБ диска):
+  `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
+  до установки пакета.
+
 ---
 
 ## Команды
