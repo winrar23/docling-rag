@@ -49,3 +49,7 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Docker volumes (дефолтные пути bind-mounts) и книги пользователя
+volumes/
+books/

@@ -1,0 +1,67 @@
+name: docling-rag
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docling}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docling}
+      POSTGRES_DB: ${POSTGRES_DB:-docling_rag}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ${PGDATA_DIR:-./volumes/pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docling} -d ${POSTGRES_DB:-docling_rag}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    command: ["api"]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ${DATA_DIR:-./volumes/data}:/data
+      - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
+      - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # dev-вариант api: hot-reload, ./src примонтирован поверх /app/src (editable install)
+  api-dev:
+    profiles: ["dev"]
+    build: .
+    command: ["api", "--reload"]
+    ports:
+      - "127.0.0.1:${API_DEV_PORT:-8001}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ${DATA_DIR:-./volumes/data}:/data
+      - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
+      - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
+
+  # запуск: docker compose run --rm cli add /books/file.pdf
+  cli:
+    profiles: ["cli"]
+    build: .
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${DATA_DIR:-./volumes/data}:/data
+      - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
+      - ${BOOKS_DIR:-./books}:/books:ro

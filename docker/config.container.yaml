@@ -1,0 +1,10 @@
+# Конфиг внутри контейнера: данные на bind-mount /data, LM Studio на хосте
+embedding_model: all-MiniLM-L6-v2
+top_k_results: 5
+data_dir: /data
+log_file: /data/logs/search.log
+agent_enabled: true
+llm_base_url: "http://host.docker.internal:1234/v1"
+llm_api_key: "lm-studio"
+llm_model: "local-model"
+agent_top_k: 5

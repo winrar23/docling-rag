@@ -37,6 +37,44 @@ docling-rag list
 
 ---
 
+## Docker
+
+Требования на хосте: Docker Desktop + LM Studio (для `ask`).
+
+```bash
+cp .env.example .env   # пути volumes и порты — правь под себя
+docker compose up -d --wait          # postgres + api (health: :8000/health)
+docker compose run --rm cli init
+docker compose run --rm cli add /books/my-book.pdf --title "My Book"
+docker compose run --rm cli search "запрос"
+docker compose run --rm cli ask "вопрос"   # LM Studio на хосте, порт 1234
+docker compose run --rm cli test tests/ -m "not integration and not slow"  # тесты в контейнере
+docker compose --profile dev up api-dev    # hot-reload API на :8001
+```
+
+Все данные лежат на путях хоста из `.env` (`DATA_DIR`, `PGDATA_DIR`, `HF_CACHE_DIR`,
+`UPLOADS_DIR`, `BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются.
+
+### PyTorch: CPU или GPU
+
+Образ собирается с **CPU-сборкой** PyTorch: GPU в контейнер не пробрасывается (Docker
+Desktop на macOS — это Linux-VM без доступа к Metal), а CUDA-сборка добавила бы ~4 ГБ
+бесполезных NVIDIA-библиотек (образ был бы ~6 ГБ вместо 2.4). CPU-сборка работает на
+любой машине; на функциональность выбор не влияет — только на скорость `add`/`search`.
+
+При установке на хост (`uv pip install -e ".[dev]"`):
+
+- **macOS (Apple Silicon)** — ничего выбирать не нужно: обычный wheel с PyPI уже включает
+  поддержку Apple-GPU (backend MPS, работает с объединённой памятью). CUDA-сборка на Mac
+  неприменима — CUDA есть только у NVIDIA.
+- **Linux/Windows с NVIDIA-картой** — дефолтный `pip install torch` (CUDA-сборка) ускорит
+  индексацию и OCR.
+- **Linux/Windows без NVIDIA** — экономнее CPU-сборка (минус ~4 ГБ диска):
+  `uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
+  до установки пакета.
+
+---
+
 ## Команды
 
 ### `init` — инициализировать хранилище
@@ -229,7 +267,7 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
 │   ├── metadata.json       # Метаданные chunks (включая headings)
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 107 fast-тестов + 3 integration + 1 slow
+├── tests/                  # 108 fast-тестов + 3 integration + 1 slow
 ├── config.yaml
 └── pyproject.toml
 ```
@@ -257,7 +295,7 @@ uv pip install -e ".[dev]"
 # Установка с поддержкой агента
 uv pip install -e ".[agent,dev]"
 
-# Быстрые тесты (107 fast)
+# Быстрые тесты (108 fast)
 pytest tests/ -m "not integration and not slow"
 
 # Интеграционные тесты (реальный Docling + модель, ~30 сек)
