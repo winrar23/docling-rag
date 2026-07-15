@@ -2,6 +2,8 @@
 """DDL схемы pgvector-хранилища. Идемпотентно; используется CLI `init` и тестами."""
 import psycopg
 
+from docling_rag.core.errors import StorageUnavailableError
+
 DDL = """
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -30,6 +32,9 @@ CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw
 
 
 def init_schema(dsn: str) -> None:
-    with psycopg.connect(dsn) as conn:
-        conn.execute(DDL)
-        conn.commit()
+    try:
+        with psycopg.connect(dsn) as conn:
+            conn.execute(DDL)
+            conn.commit()
+    except psycopg.OperationalError as e:
+        raise StorageUnavailableError(str(e)) from e

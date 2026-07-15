@@ -1,14 +1,35 @@
 # storage/db_storage.py
 """pgvector-хранилище chunks. Реализует StorageBackend (core/protocols.py)."""
 import json
+from contextlib import contextmanager
 
 import numpy as np
 import psycopg
 from pgvector.psycopg import register_vector
 
 from docling_rag.core.chunker import Chunk
+from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
 
 _META_COLS = "text, source_file, chunk_id, page_number, element_type, headings"
+
+
+@contextmanager
+def _translate_db_errors():
+    """psycopg-исключения -> доменные (core/errors.py): CLI и core не знают о psycopg.
+
+    Используется и DBRegistry. Неожиданные ошибки НЕ глотаются — пробрасываются как есть.
+    """
+    try:
+        yield
+    except psycopg.OperationalError as e:
+        raise StorageUnavailableError(str(e)) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise StorageSchemaMissingError(str(e)) from e
+    except psycopg.ProgrammingError as e:
+        # register_vector/DDL без расширения vector: тип "vector" отсутствует => схема не создана
+        if "vector" in str(e):
+            raise StorageSchemaMissingError(str(e)) from e
+        raise
 
 
 def _to_numpy(v) -> np.ndarray:
@@ -65,19 +86,19 @@ class DBStorage:
 
     def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
         self._check_lengths(chunks, embeddings)
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             conn.execute("DELETE FROM chunks")
             self._insert(conn, chunks, embeddings)
             conn.commit()
 
     def append(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
         self._check_lengths(chunks, embeddings)
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             self._insert(conn, chunks, embeddings)
             conn.commit()
 
     def load(self) -> tuple[np.ndarray, list[dict]]:
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             rows = conn.execute(
                 f"SELECT {_META_COLS}, embedding FROM chunks ORDER BY source_file, chunk_id"
             ).fetchall()
@@ -87,12 +108,12 @@ class DBStorage:
         return embeddings, [_row_to_meta(r[:-1]) for r in rows]
 
     def delete_by_source(self, source_file: str) -> None:
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             conn.execute("DELETE FROM chunks WHERE source_file = %s", (source_file,))
             conn.commit()
 
     def count_by_source(self, source_file: str) -> int:
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             row = conn.execute(
                 "SELECT count(*) FROM chunks WHERE source_file = %s", (source_file,)
             ).fetchone()
@@ -109,7 +130,7 @@ class DBStorage:
         if allowed_sources is not None and not allowed_sources:
             return []
         q = np.asarray(query_embedding, dtype=np.float32)
-        with self._connect() as conn:
+        with _translate_db_errors(), self._connect() as conn:
             empty = conn.execute("SELECT NOT EXISTS (SELECT 1 FROM chunks)").fetchone()[0]
             if empty:
                 raise FileNotFoundError("Storage is empty: no chunks in database")

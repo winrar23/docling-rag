@@ -1,10 +1,9 @@
 import numpy as np
-import psycopg
 import pytest
 from unittest.mock import MagicMock, patch
 
 from docling_rag.cli import main
-from docling_rag.core.errors import StorageError
+from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
 from tests.fakes import InMemoryRegistry
 
 
@@ -23,10 +22,10 @@ def test_init_command_initializes_schema(runner, hermetic_config, monkeypatch):
 
 
 def test_init_postgres_down_gives_helpful_error(runner, monkeypatch):
-    def raise_operational(dsn):
-        raise psycopg.OperationalError("connection refused")
+    def raise_unavailable(dsn):
+        raise StorageUnavailableError("connection refused")
 
-    monkeypatch.setattr("docling_rag.cli.commands.init_schema", raise_operational)
+    monkeypatch.setattr("docling_rag.cli.commands.init_schema", raise_unavailable)
     result = runner.invoke(main, ["init"])
     assert result.exit_code == 1
     assert "PostgreSQL недоступен" in result.output
@@ -143,8 +142,8 @@ def test_search_reports_corrupted_storage(runner):
 def test_search_postgres_down_gives_helpful_error(runner, monkeypatch):
     class BoomStorage:
         def __init__(self, dsn): pass
-        def search(self, *a, **kw): raise psycopg.OperationalError("connection refused")
-        def load(self): raise psycopg.OperationalError("connection refused")
+        def search(self, *a, **kw): raise StorageUnavailableError("connection refused")
+        def load(self): raise StorageUnavailableError("connection refused")
 
     monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
@@ -157,34 +156,14 @@ def test_search_postgres_down_gives_helpful_error(runner, monkeypatch):
 
 
 def test_search_schema_missing_gives_helpful_error(runner, monkeypatch):
-    """psycopg.errors.UndefinedTable (schema not created yet) -> 'run init' hint."""
+    """StorageSchemaMissingError (schema not created yet) -> 'run init' hint."""
 
     class BoomStorage:
         def __init__(self, dsn): pass
         def search(self, *a, **kw):
-            raise psycopg.errors.UndefinedTable('relation "chunks" does not exist')
+            raise StorageSchemaMissingError('relation "chunks" does not exist')
         def load(self):
-            raise psycopg.errors.UndefinedTable('relation "chunks" does not exist')
-
-    monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
-    monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
-    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder:
-        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
-        result = runner.invoke(main, ["search", "query"])
-    assert result.exit_code == 1
-    assert "Схема БД не инициализирована" in result.output
-    assert "docling-rag init" in result.output
-
-
-def test_search_vector_extension_missing_gives_helpful_error(runner, monkeypatch):
-    """generic psycopg.ProgrammingError mentioning 'vector' (extension missing) -> 'run init' hint."""
-
-    class BoomStorage:
-        def __init__(self, dsn): pass
-        def search(self, *a, **kw):
-            raise psycopg.ProgrammingError('type "vector" does not exist')
-        def load(self):
-            raise psycopg.ProgrammingError('type "vector" does not exist')
+            raise StorageSchemaMissingError('relation "chunks" does not exist')
 
     monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
@@ -199,7 +178,7 @@ def test_search_vector_extension_missing_gives_helpful_error(runner, monkeypatch
 def test_list_postgres_down_gives_helpful_error(runner, monkeypatch):
     class BoomStorage:
         def __init__(self, dsn): pass
-        def load(self): raise psycopg.OperationalError("connection refused")
+        def load(self): raise StorageUnavailableError("connection refused")
 
     monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
@@ -207,6 +186,61 @@ def test_list_postgres_down_gives_helpful_error(runner, monkeypatch):
     assert result.exit_code == 1
     assert "PostgreSQL недоступен" in result.output
     assert "docker compose up -d postgres" in result.output
+
+
+def test_add_postgres_down_gives_helpful_error(runner, tmp_path, monkeypatch):
+    """Important-фикс: инфраструктурная ошибка при add НЕ должна тонуть в per-file
+    отчёте indexer'а — полная цепочка add -> index_files -> storage.append должна
+    донести до пользователя «PostgreSQL недоступен» + подсказку compose."""
+
+    class BoomStorage:
+        def __init__(self, dsn): pass
+        def delete_by_source(self, source_file): pass
+        def append(self, *a, **kw): raise StorageUnavailableError("connection refused")
+
+    test_doc = tmp_path / "down.md"
+    test_doc.write_text("# T\n\ntext\n")
+    monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
+    monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "t"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        result = runner.invoke(main, ["add", str(test_doc)])
+    assert result.exit_code == 1
+    assert "PostgreSQL недоступен" in result.output
+    assert "docker compose up -d postgres" in result.output
+    assert "Ошибка при обработке" not in result.output  # не per-file отчёт, а fail-fast
+
+
+def test_add_schema_missing_gives_helpful_error(runner, tmp_path, monkeypatch):
+    class BoomStorage:
+        def __init__(self, dsn): pass
+        def delete_by_source(self, source_file):
+            raise StorageSchemaMissingError('relation "chunks" does not exist')
+
+    test_doc = tmp_path / "noschema.md"
+    test_doc.write_text("# T\n\ntext\n")
+    monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
+    monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "t"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        result = runner.invoke(main, ["add", str(test_doc)])
+    assert result.exit_code == 1
+    assert "Схема БД не инициализирована" in result.output
+    assert "docling-rag init" in result.output
 
 
 def test_search_does_not_crash_when_log_raises_oserror(runner):

@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 
 from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
+from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.parser import Parser
 from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
 
@@ -49,6 +50,8 @@ def index_files(
             registry.upsert(source, title=title, topic=topic, tags=list(tags))
             report.chunks_added += len(chunks)
             report.files_ok += 1
+        except (StorageUnavailableError, StorageSchemaMissingError):
+            raise  # инфраструктурная ошибка — батч бессмысленен, пробрасываем наверх
         except Exception as e:  # batch loop: one file's failure must not abort the rest
             report.files_failed += 1
             report.errors.append((source, f"{type(e).__name__}: {e}"))

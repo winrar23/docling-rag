@@ -2,6 +2,8 @@
 """Реестр документов в PostgreSQL. Реализует DocumentRegistryBackend (core/protocols.py)."""
 import psycopg
 
+from docling_rag.storage.db_storage import _translate_db_errors
+
 
 def _row_to_entry(row) -> dict:
     title, topic, tags, added_at = row
@@ -23,7 +25,7 @@ class DBRegistry:
         tags: list[str],
     ) -> None:
         # Семантика DocRegistry (MVP): added_at сохраняется, None/пустые значения не затирают существующие
-        with psycopg.connect(self._dsn) as conn:
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             conn.execute(
                 """
                 INSERT INTO documents (source_file, title, topic, tags)
@@ -39,12 +41,12 @@ class DBRegistry:
             conn.commit()
 
     def delete(self, source_file: str) -> None:
-        with psycopg.connect(self._dsn) as conn:
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             conn.execute("DELETE FROM documents WHERE source_file = %s", (source_file,))
             conn.commit()
 
     def get(self, source_file: str) -> dict | None:
-        with psycopg.connect(self._dsn) as conn:
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             row = conn.execute(
                 "SELECT title, topic, tags, added_at FROM documents WHERE source_file = %s",
                 (source_file,),
@@ -52,7 +54,7 @@ class DBRegistry:
         return _row_to_entry(row) if row else None
 
     def load(self) -> dict[str, dict]:
-        with psycopg.connect(self._dsn) as conn:
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             rows = conn.execute(
                 "SELECT source_file, title, topic, tags, added_at FROM documents ORDER BY source_file"
             ).fetchall()

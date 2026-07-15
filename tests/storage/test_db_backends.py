@@ -177,3 +177,40 @@ class TestDBRegistry:
         assert r.get("/books/a.pdf") is None
         assert s.count_by_source("/books/a.pdf") == 0
         r.delete("/books/a.pdf")  # идемпотентно
+
+
+class TestDomainErrorTranslation:
+    """Реальный psycopg-стек -> доменные исключения (core/errors.py)."""
+
+    UNREACHABLE_URL = "postgresql://test:test@127.0.0.1:1/test"  # порт 1 — fail fast
+
+    def test_storage_load_unreachable_raises_storage_unavailable(self):
+        from docling_rag.core.errors import StorageUnavailableError
+        from docling_rag.storage.db_storage import DBStorage
+        with pytest.raises(StorageUnavailableError):
+            DBStorage(self.UNREACHABLE_URL).load()
+
+    def test_registry_load_unreachable_raises_storage_unavailable(self):
+        from docling_rag.core.errors import StorageUnavailableError
+        from docling_rag.storage.db_registry import DBRegistry
+        with pytest.raises(StorageUnavailableError):
+            DBRegistry(self.UNREACHABLE_URL).load()
+
+    def test_init_schema_unreachable_raises_storage_unavailable(self):
+        from docling_rag.core.errors import StorageUnavailableError
+        from docling_rag.storage.db_schema import init_schema
+        with pytest.raises(StorageUnavailableError):
+            init_schema(self.UNREACHABLE_URL)
+
+    def test_missing_chunks_table_raises_schema_missing(self, db_url):
+        from docling_rag.core.errors import StorageSchemaMissingError
+        from docling_rag.storage.db_schema import init_schema
+        from docling_rag.storage.db_storage import DBStorage
+        with psycopg.connect(db_url) as conn:
+            conn.execute("DROP TABLE IF EXISTS chunks CASCADE")
+            conn.commit()
+        try:
+            with pytest.raises(StorageSchemaMissingError):
+                DBStorage(db_url).load()
+        finally:
+            init_schema(db_url)  # восстановить схему для соседних тестов (идемпотентно)

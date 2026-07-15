@@ -3,11 +3,10 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-import psycopg
 
 from docling_rag.cli.config_loader import load_config, ConfigError
 from docling_rag.core.embedder import Embedder
-from docling_rag.core.errors import StorageError
+from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import StorageBackend
@@ -58,7 +57,7 @@ def init(config: str | None) -> None:
     cfg = _load_cfg(config)
     try:
         init_schema(cfg["database_url"])
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
     Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
     click.echo(f"Схема БД инициализирована: {_mask_dsn(cfg['database_url'])}")
@@ -93,14 +92,10 @@ def add(
     try:
         report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
                              chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags)
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    except psycopg.errors.UndefinedTable as e:
+    except StorageSchemaMissingError as e:
         raise _schema_missing() from e
-    except psycopg.ProgrammingError as e:
-        if "vector" in str(e):
-            raise _schema_missing() from e
-        raise
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
@@ -129,14 +124,10 @@ def search(
 
     try:
         allowed_sources = resolve_allowed_sources(registry, tags=filter_tags, topic=filter_topic)
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    except psycopg.errors.UndefinedTable as e:
+    except StorageSchemaMissingError as e:
         raise _schema_missing() from e
-    except psycopg.ProgrammingError as e:
-        if "vector" in str(e):
-            raise _schema_missing() from e
-        raise
 
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
@@ -149,14 +140,10 @@ def search(
         raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    except psycopg.errors.UndefinedTable as e:
+    except StorageSchemaMissingError as e:
         raise _schema_missing() from e
-    except psycopg.ProgrammingError as e:
-        if "vector" in str(e):
-            raise _schema_missing() from e
-        raise
 
     if not results:
         click.echo("Ничего не найдено.")
@@ -196,14 +183,10 @@ def list_docs(config: str | None) -> None:
         return
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    except psycopg.errors.UndefinedTable as e:
+    except StorageSchemaMissingError as e:
         raise _schema_missing() from e
-    except psycopg.ProgrammingError as e:
-        if "vector" in str(e):
-            raise _schema_missing() from e
-        raise
 
     sources: dict[str, int] = {}
     for m in metadata:
@@ -290,14 +273,10 @@ def ask(question: str, config: str | None, top_k: int | None) -> None:
         raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
-    except psycopg.OperationalError as e:
+    except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    except psycopg.errors.UndefinedTable as e:
+    except StorageSchemaMissingError as e:
         raise _schema_missing() from e
-    except psycopg.ProgrammingError as e:
-        if "vector" in str(e):
-            raise _schema_missing() from e
-        raise
     except Exception as e:
         if _is_connection_error(e):
             raise click.ClickException(

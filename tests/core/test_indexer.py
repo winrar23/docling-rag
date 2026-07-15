@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 from unittest.mock import MagicMock, patch
 
+from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.indexer import index_files, IndexReport
 from docling_rag.storage.file_storage import FileStorage
 from docling_rag.storage.doc_registry import DocRegistry
@@ -68,3 +70,20 @@ def test_index_files_continues_after_failure(tmp_path):
         report = index_files([bad, good], parser, embedder, storage, registry, "m")
     assert report.files_failed == 1 and report.files_ok == 1
     assert report.errors[0][0] == str(bad.resolve()) and "boom" in report.errors[0][1]
+
+
+@pytest.mark.parametrize("infra_error", [
+    StorageUnavailableError("connection refused"),
+    StorageSchemaMissingError('relation "chunks" does not exist'),
+])
+def test_index_files_reraises_infrastructure_errors(tmp_path, infra_error):
+    """Инфраструктурная ошибка хранилища — не «кривой файл»: батч бессмысленен,
+    исключение пробрасывается наверх, а не кладётся в report.errors."""
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = MagicMock(), MagicMock()
+    storage.delete_by_source.side_effect = infra_error
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
+        with pytest.raises(type(infra_error)):
+            index_files([f], parser, embedder, storage, registry, "m")
