@@ -19,9 +19,10 @@ RUN apt-get update \
 WORKDIR /app
 
 # torch/torchvision строго с CPU-индекса ДО остального: дефолтный linux-wheel тянет CUDA (~4 ГБ),
-# а PyPI-torchvision бинарно несовместим с torch+cpu (RuntimeError: operator torchvision::nms does not exist)
+# а PyPI-torchvision бинарно несовместим с torch+cpu (RuntimeError: operator torchvision::nms does not exist).
+# Версии запинены по проверенному образу этапа 1: дрейф пары уже ломал рантайм
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu
 
 COPY pyproject.toml ./
 COPY src/ src/
