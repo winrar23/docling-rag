@@ -37,6 +37,26 @@ docling-rag list
 
 ---
 
+## Docker
+
+Требования на хосте: Docker Desktop + LM Studio (для `ask`).
+
+```bash
+cp .env.example .env   # пути volumes и порты — правь под себя
+docker compose up -d --wait          # postgres + api (health: :8000/health)
+docker compose run --rm cli init
+docker compose run --rm cli add /books/my-book.pdf --title "My Book"
+docker compose run --rm cli search "запрос"
+docker compose run --rm cli ask "вопрос"   # LM Studio на хосте, порт 1234
+docker compose run --rm cli test tests/ -m "not integration and not slow"  # тесты в контейнере
+docker compose --profile dev up api-dev    # hot-reload API на :8001
+```
+
+Все данные лежат на путях хоста из `.env` (`DATA_DIR`, `PGDATA_DIR`, `HF_CACHE_DIR`,
+`UPLOADS_DIR`, `BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются.
+
+---
+
 ## Команды
 
 ### `init` — инициализировать хранилище
