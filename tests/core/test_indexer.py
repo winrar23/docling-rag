@@ -38,6 +38,25 @@ def test_index_files_reindex_is_idempotent(tmp_path):
     assert len(meta) == 1  # не 2
 
 
+def test_index_files_passes_chunk_max_tokens_to_chunk_document(tmp_path):
+    """chunk_max_tokens must reach chunk_document as max_tokens (non-default 384:
+    matching defaults of 512 on both sides would mask a dropped kwarg)."""
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = FileStorage(data_dir=tmp_path), DocRegistry(data_dir=tmp_path)
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
+    with patch("docling_rag.core.indexer.chunk_document",
+               return_value=[_chunk(str(f.resolve()))]) as mock_chunk_doc:
+        index_files([f], parser, embedder, storage, registry, "all-MiniLM-L6-v2",
+                    chunk_max_tokens=384)
+    mock_chunk_doc.assert_called_once_with(
+        parser.parse.return_value,
+        source_file=str(f.resolve()),
+        embedding_model="all-MiniLM-L6-v2",
+        max_tokens=384,
+    )
+
+
 def test_index_files_continues_after_failure(tmp_path):
     good, bad = tmp_path / "g.md", tmp_path / "b.md"
     good.write_text("g"); bad.write_text("b")

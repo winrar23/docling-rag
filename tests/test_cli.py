@@ -218,6 +218,42 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
     )
 
 
+def test_add_passes_chunk_max_tokens_from_config(runner, tmp_path, hermetic_config):
+    """Full chain commands.add -> index_files -> chunk_document must deliver
+    chunk_max_tokens from config. Non-default 384: since index_files and
+    chunk_document both default to 512, a dropped kwarg would otherwise pass unnoticed."""
+    from unittest.mock import ANY
+
+    # hermetic_config's load_config lambda closes over this dict and copies it
+    # at call time — mutating it here changes what the CLI sees in cfg.
+    hermetic_config["chunk_max_tokens"] = 384
+
+    test_doc = tmp_path / "tokens.md"
+    test_doc.write_text("# T\n\ntext\n")
+
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.FileStorage"),
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+        patch("docling_rag.cli.commands.DocRegistry"),
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "text"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, ["add", str(test_doc), "--data-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    MockChunkDoc.assert_called_once_with(
+        ANY,
+        source_file=str(test_doc.resolve()),
+        embedding_model="all-MiniLM-L6-v2",
+        max_tokens=384,
+    )
+
+
 def test_re_add_same_file_does_not_duplicate(runner, tmp_path):
     """Re-adding a file must delete its old chunks first (idempotent add)."""
     test_doc = tmp_path / "b.md"
