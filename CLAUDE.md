@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — образ `docling-rag:local` (общий `image:` для api/api-dev/cli), docker compose (postgres + api + cli), env-configurable volumes. 108 unit/fast-тестов + 3 integration tests + 1 slow test, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2 открыт открывающими коммитами — пины torch==2.13.0/torchvision==0.28.0 (cpu) и pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR-моделей, общий образ `docling-rag:local` (один `image:` для api/api-dev/cli). 108 unit/fast-тестов + 3 integration tests + 1 slow test, все зелёные.
 
 ## Stack (MVP)
 
