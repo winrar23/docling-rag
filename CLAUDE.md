@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — образ `docling-rag:stage1`, docker compose (postgres + api + cli), env-configurable volumes. 108 unit/fast-тестов + 3 integration tests + 1 slow test, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — образ `docling-rag:local` (общий `image:` для api/api-dev/cli), docker compose (postgres + api + cli), env-configurable volumes. 108 unit/fast-тестов + 3 integration tests + 1 slow test, все зелёные.
 
 ## Stack (MVP)
 
@@ -77,7 +77,7 @@ docling-rag/
 │   └── doc_index.json       # Реестр документов (title, topic, tags, added_at)
 ├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/test_*.py — 108 fast + 3 integration + 1 slow
 ├── config.yaml              # top_k_results, embedding_model (chunk_size удалён — HybridChunker авто)
-├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); entrypoint-диспетчер api/test/cli
+├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/test/cli
 ├── compose.yaml             # postgres + api + api-dev (profile dev) + cli (profile cli), bind-mounts из .env
 ├── .env.example             # DATA_DIR/PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты
 └── docker/
@@ -116,6 +116,7 @@ docling-rag/
 - **Все volumes — bind-mounts из `.env`** — требование пользователя: расположение данных выбирает он. `DATA_DIR`/`PGDATA_DIR`/`HF_CACHE_DIR`/`UPLOADS_DIR`/`BOOKS_DIR`, дефолты `./volumes/*` и `./books`. Named volumes в compose НЕ использовать
 - **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`): `data_dir: /data`, LLM через `host.docker.internal:1234`
 - **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно (не только `torch`) — PyPI-колесо `torchvision` бинарно несовместимо с CPU-сборкой `torch` с того же индекса и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета берутся с одного CPU-индекса одной командой. Версии запинены (первый коммит этапа 2); при осознанном апгрейде пары менять обе версии разом и проверять контейнерный тест-прогон
+- **Пре-бейк RapidOCR-моделей в образе** — rapidocr в образе работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей в site-packages при первом парсе PDF; Dockerfile конструирует RapidOcrModel на этапе сборки, чтобы модели легли в слой образа. Бандленные .onnx-модели rapidocr при torch-движке не используются
 - **postgres в compose поднимается, но приложением не используется до этапа 2** — FileStorage остаётся рабочим бэкендом, данные в `/data`
 - **api на этапе 1 — только `GET /health`** — REST каталога/чата появится на этапе 4
 

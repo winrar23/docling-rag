@@ -12,7 +12,7 @@ logs/
 volumes/
 books/
 docs/
-docling_rag.egg-info
+**/*.egg-info
 *.pdf
 *.fb2
 .env

@@ -24,12 +24,26 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu
 
+# Слой зависимостей: только pyproject — правки src/tests не инвалидируют установку стека
 COPY pyproject.toml ./
-COPY src/ src/
-COPY tests/ tests/
-# editable: /app/src — живой код пакета, dev-режим бинд-маунтит ./src поверх
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system -e ".[agent,api,dev]"
+    uv pip install --system -r pyproject.toml --extra agent --extra api --extra dev
+
+# Пре-бейк RapidOCR-моделей: torch-движок качает ~16 МБ .pth в site-packages/rapidocr/models
+# при первом парсе PDF; скачивание происходит в конструкторе стадии — запекаем в слой образа.
+# backend='torch' обязателен: дефолт onnxruntime в этом образе падает ImportError'ом,
+# рантайм (OcrAutoModel) ловит его и фолбэчится на torch — конструируем сразу как рантайм
+RUN python -c "\
+from docling.datamodel.accelerator_options import AcceleratorOptions; \
+from docling.datamodel.pipeline_options import RapidOcrOptions; \
+from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel; \
+RapidOcrModel(enabled=True, artifacts_path=None, options=RapidOcrOptions(backend='torch'), accelerator_options=AcceleratorOptions())"
+
+COPY src/ src/
+# editable: /app/src — живой код пакета, dev-режим бинд-маунтит ./src поверх; deps уже в слое выше
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --no-deps -e .
+COPY tests/ tests/
 
 COPY docker/config.container.yaml ./config.yaml
 COPY --from=frontend /out/static ./static
