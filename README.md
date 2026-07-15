@@ -249,7 +249,7 @@ docling-rag/
 │   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
 │   ├── metadata.json       # Метаданные chunks (включая headings)
 │   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 107 fast-тестов + 3 integration + 1 slow
+├── tests/                  # 108 fast-тестов + 3 integration + 1 slow
 ├── config.yaml
 └── pyproject.toml
 ```
@@ -277,7 +277,7 @@ uv pip install -e ".[dev]"
 # Установка с поддержкой агента
 uv pip install -e ".[agent,dev]"
 
-# Быстрые тесты (107 fast)
+# Быстрые тесты (108 fast)
 pytest tests/ -m "not integration and not slow"
 
 # Интеграционные тесты (реальный Docling + модель, ~30 сек)
