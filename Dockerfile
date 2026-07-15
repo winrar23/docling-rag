@@ -29,6 +29,9 @@ COPY pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -r pyproject.toml --extra agent --extra api --extra dev
 
+# Enforce: deps-слой не имеет права молча переустановить torch-пару (например, CUDA-wheel с PyPI)
+RUN python -c "import torch, torchvision; v=(torch.__version__, torchvision.__version__); assert v == ('2.13.0+cpu', '0.28.0+cpu'), v"
+
 # Пре-бейк RapidOCR-моделей: torch-движок качает ~16 МБ .pth в site-packages/rapidocr/models
 # при первом парсе PDF; скачивание происходит в конструкторе стадии — запекаем в слой образа.
 # backend='torch' обязателен: дефолт onnxruntime в этом образе падает ImportError'ом,
