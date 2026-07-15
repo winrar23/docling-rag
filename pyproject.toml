@@ -22,7 +22,7 @@ dev = [
     "httpx>=0.27.0",
 ]
 agent = [
-    "pydantic-ai[openai]>=1.0",
+    "pydantic-ai>=2.0,<3",
 ]
 api = [
     "fastapi>=0.115.0",
