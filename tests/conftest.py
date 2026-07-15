@@ -6,7 +6,6 @@ _HERMETIC_DEFAULTS = {
     # CLI unit-тесты мокают Embedder, но герметичный дефолт не должен указывать на тяжёлую модель.
     "embedding_model": "all-MiniLM-L6-v2",
     "top_k_results": 5,
-    "data_dir": "data",
     "log_file": "",  # заполняется per-test из tmp_path
     "agent_enabled": False,
     "llm_base_url": "http://127.0.0.1:1234/v1",
@@ -32,3 +31,12 @@ def hermetic_config(tmp_path, monkeypatch):
     cfg["log_file"] = str(tmp_path / "logs" / "search.log")
     monkeypatch.setattr("docling_rag.cli.commands.load_config", lambda *_a, **_kw: dict(cfg))
     return cfg
+
+
+@pytest.fixture
+def fake_backends(monkeypatch):
+    from tests.fakes import InMemoryRegistry, InMemoryStorage
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
+    monkeypatch.setattr("docling_rag.cli.commands.DBStorage", lambda dsn: storage)
+    monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: registry)
+    return storage, registry

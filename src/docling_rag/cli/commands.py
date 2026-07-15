@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+import psycopg
 
 from docling_rag.cli.config_loader import load_config, ConfigError
 from docling_rag.core.embedder import Embedder
@@ -11,12 +12,13 @@ from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import StorageBackend
 from docling_rag.core.search import resolve_allowed_sources, run_search
-from docling_rag.storage.doc_registry import DocRegistry
-from docling_rag.storage.file_storage import FileStorage
+from docling_rag.storage.db_registry import DBRegistry
+from docling_rag.storage.db_schema import init_schema
+from docling_rag.storage.db_storage import DBStorage
 
 
-def get_storage(data_dir: str) -> StorageBackend:
-    return FileStorage(data_dir=Path(data_dir))
+def get_storage(cfg: dict) -> StorageBackend:
+    return DBStorage(cfg["database_url"])
 
 
 def _load_cfg(config: str | None) -> dict:
@@ -26,6 +28,23 @@ def _load_cfg(config: str | None) -> dict:
         raise click.ClickException(str(e)) from e
 
 
+def _mask_dsn(dsn: str) -> str:
+    """postgresql://user:СЕКРЕТ@host -> postgresql://user:***@host"""
+    import re
+    return re.sub(r"(://[^:/@]+):[^@]+@", r"\1:***@", dsn)
+
+
+def _db_unavailable(cfg: dict, e: Exception) -> click.ClickException:
+    return click.ClickException(
+        f"PostgreSQL недоступен ({_mask_dsn(cfg['database_url'])}).\n"
+        "Запустите: docker compose up -d postgres"
+    )
+
+
+def _schema_missing() -> click.ClickException:
+    return click.ClickException("Схема БД не инициализирована. Выполните: docling-rag init")
+
+
 @click.group()
 def main() -> None:
     """docling-rag — semantic search over technical documentation."""
@@ -33,28 +52,26 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--config", default=None, help="Path to config.yaml")
-def init(data_dir: str | None, config: str | None) -> None:
-    """Initialize storage."""
+def init(config: str | None) -> None:
+    """Initialize database schema (idempotent)."""
     cfg = _load_cfg(config)
-    data_dir = data_dir or cfg["data_dir"]
-    path = Path(data_dir)
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        init_schema(cfg["database_url"])
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
     Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
-    click.echo(f"Инициализировано хранилище: {path.resolve()}")
+    click.echo(f"Схема БД инициализирована: {_mask_dsn(cfg['database_url'])}")
 
 
 @main.command()
 @click.argument("file_path", type=click.Path(exists=True))
-@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--title", default=None, help="Document title")
 @click.option("--topic", default=None, help="Domain/topic of the document")
 @click.option("--tag", "tags", multiple=True, help="Tag (repeatable: --tag arch --tag solid)")
 def add(
     file_path: str,
-    data_dir: str | None,
     config: str | None,
     title: str | None,
     topic: str | None,
@@ -62,7 +79,6 @@ def add(
 ) -> None:
     """Add a document or directory to the index."""
     cfg = _load_cfg(config)
-    data_dir = data_dir or cfg["data_dir"]
     path = Path(file_path)
     files = list(path.rglob("*.*")) if path.is_dir() else [path]
     files = [f for f in files if f.suffix.lower() in SUPPORTED_EXTENSIONS]
@@ -72,10 +88,19 @@ def add(
 
     parser = Parser()
     embedder = Embedder(model_name=cfg["embedding_model"])
-    storage = get_storage(data_dir)
-    registry = DocRegistry(data_dir=data_dir)
-    report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
-                         chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags)
+    storage = get_storage(cfg)
+    registry = DBRegistry(cfg["database_url"])
+    try:
+        report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
+                             chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags)
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise _schema_missing() from e
+    except psycopg.ProgrammingError as e:
+        if "vector" in str(e):
+            raise _schema_missing() from e
+        raise
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
@@ -85,14 +110,12 @@ def add(
 
 @main.command()
 @click.argument("query")
-@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--top-k", default=None, type=click.IntRange(min=1), help="Number of results")
 @click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--tag", "filter_tags", multiple=True, help="Filter to docs with this tag (repeatable)")
 @click.option("--topic", "filter_topic", default=None, help="Filter to docs with this topic (case-insensitive)")
 def search(
     query: str,
-    data_dir: str | None,
     top_k: int | None,
     config: str | None,
     filter_tags: tuple[str, ...],
@@ -100,12 +123,21 @@ def search(
 ) -> None:
     """Perform semantic search over the documentation."""
     cfg = _load_cfg(config)
-    data_dir = data_dir or cfg["data_dir"]
     k = top_k if top_k is not None else cfg["top_k_results"]
-    storage = get_storage(data_dir)
-    registry = DocRegistry(data_dir=data_dir)
+    storage = get_storage(cfg)
+    registry = DBRegistry(cfg["database_url"])
 
-    allowed_sources = resolve_allowed_sources(registry, tags=filter_tags, topic=filter_topic)
+    try:
+        allowed_sources = resolve_allowed_sources(registry, tags=filter_tags, topic=filter_topic)
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise _schema_missing() from e
+    except psycopg.ProgrammingError as e:
+        if "vector" in str(e):
+            raise _schema_missing() from e
+        raise
+
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
         return
@@ -117,6 +149,14 @@ def search(
         raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise _schema_missing() from e
+    except psycopg.ProgrammingError as e:
+        if "vector" in str(e):
+            raise _schema_missing() from e
+        raise
 
     if not results:
         click.echo("Ничего не найдено.")
@@ -142,28 +182,33 @@ def search(
 
 
 @main.command("list")
-@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--config", default=None, help="Path to config.yaml")
-def list_docs(data_dir: str | None, config: str | None) -> None:
+def list_docs(config: str | None) -> None:
     """Show list of indexed documents."""
     cfg = _load_cfg(config)
-    data_dir = data_dir or cfg["data_dir"]
-    storage = get_storage(data_dir)
-    registry = DocRegistry(data_dir=data_dir)
+    storage = get_storage(cfg)
+    registry = DBRegistry(cfg["database_url"])
     try:
         _, metadata = storage.load()
+        doc_index = registry.load()
     except FileNotFoundError:
         click.echo("Хранилище пустое. Документов нет.")
         return
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise _schema_missing() from e
+    except psycopg.ProgrammingError as e:
+        if "vector" in str(e):
+            raise _schema_missing() from e
+        raise
 
     sources: dict[str, int] = {}
     for m in metadata:
         src = m["source_file"]
         sources[src] = sources.get(src, 0) + 1
-
-    doc_index = registry.load()
 
     click.echo(f"\nПроиндексировано документов: {len(sources)}\n" + "-" * 60)
     for src, count in sorted(sources.items()):
@@ -201,13 +246,13 @@ def _import_agent_module():
     return create_agent, AgentDeps, build_lmstudio_model
 
 
-def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -> str:
+def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
     create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
     agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
     embedder = Embedder(model_name=cfg["embedding_model"])
-    storage = get_storage(data_dir)
-    registry = DocRegistry(data_dir=data_dir)
+    storage = get_storage(cfg)
+    registry = DBRegistry(cfg["database_url"])
     deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)
     result = agent.run_sync(question, deps=deps)
     return result.output
@@ -215,13 +260,11 @@ def _create_and_run_agent(question: str, cfg: dict, data_dir: str, top_k: int) -
 
 @main.command()
 @click.argument("question")
-@click.option("--data-dir", default=None, help="Storage directory")
 @click.option("--config", default=None, help="Path to config.yaml")
 @click.option("--top-k", default=None, type=click.IntRange(min=1), help="Number of search results for agent")
-def ask(question: str, data_dir: str | None, config: str | None, top_k: int | None) -> None:
+def ask(question: str, config: str | None, top_k: int | None) -> None:
     """Ask a question — agent synthesizes answer from indexed documents."""
     cfg = _load_cfg(config)
-    data_dir = data_dir or cfg["data_dir"]
 
     if not cfg["agent_enabled"]:
         raise click.ClickException(
@@ -241,12 +284,20 @@ def ask(question: str, data_dir: str | None, config: str | None, top_k: int | No
     k = top_k if top_k is not None else cfg["agent_top_k"]
 
     try:
-        answer = _create_and_run_agent(question, cfg, data_dir, k)
+        answer = _create_and_run_agent(question, cfg, k)
         click.echo(answer)
     except FileNotFoundError:
         raise click.ClickException("Хранилище пустое. Добавьте документы: docling-rag add <path>")
     except StorageError as e:
         raise click.ClickException(f"Хранилище повреждено: {e}. Переиндексируйте документы.") from e
+    except psycopg.OperationalError as e:
+        raise _db_unavailable(cfg, e) from e
+    except psycopg.errors.UndefinedTable as e:
+        raise _schema_missing() from e
+    except psycopg.ProgrammingError as e:
+        if "vector" in str(e):
+            raise _schema_missing() from e
+        raise
     except Exception as e:
         if _is_connection_error(e):
             raise click.ClickException(
