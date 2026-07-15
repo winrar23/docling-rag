@@ -206,6 +206,33 @@ def list_docs(config: str | None) -> None:
         )
 
 
+@main.command()
+@click.argument("source")
+@click.option("--config", default=None, help="Path to config.yaml")
+def delete(source: str, config: str | None) -> None:
+    """Delete a document and all its chunks from the index."""
+    cfg = _load_cfg(config)
+    p = Path(source)
+    key = str(p.resolve()) if p.exists() else source  # осиротевшие записи удаляемы по строке-ключу
+    storage = get_storage(cfg)
+    registry = DBRegistry(cfg["database_url"])
+    try:
+        entry = registry.get(key)
+        n = storage.count_by_source(key)
+        if entry is None and n == 0:
+            raise click.ClickException(
+                f"Документ не найден: {key}\nТочные пути покажет: docling-rag list"
+            )
+        registry.delete(key)           # в pg каскад сносит chunks
+        storage.delete_by_source(key)  # идемпотентная страховка (и контракт для fake)
+    except StorageUnavailableError as e:
+        raise _db_unavailable(cfg, e) from e
+    except StorageSchemaMissingError as e:
+        raise _schema_missing() from e
+    title = (entry or {}).get("title") or key
+    click.echo(f"Удалено: {title} ({n} chunks)")
+
+
 def _is_connection_error(e: BaseException) -> bool:
     """Walk the cause chain: httpx/openai wrap ConnectError several levels deep."""
     try:

@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from docling_rag.cli import main
+from docling_rag.core.chunker import Chunk
 from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
 from tests.fakes import InMemoryRegistry
 
@@ -649,3 +650,35 @@ def test_ask_detects_wrapped_connect_error(runner):
         result = runner.invoke(main, ["ask", "q"])
     assert result.exit_code != 0
     assert "lm studio" in result.output.lower() or "подключиться" in result.output.lower()
+
+
+def _mk_chunk(source: str, cid: int) -> Chunk:
+    return Chunk(text="t", source_file=source, chunk_id=cid, page_number=1,
+                 element_type="text", headings=[], context_text="t")
+
+
+class TestDeleteCommand:
+    def test_delete_removes_document_and_chunks(self, runner, fake_backends):
+        storage, registry = fake_backends
+        storage.append([_mk_chunk("/books/a.pdf", 0), _mk_chunk("/books/a.pdf", 1)],
+                       np.zeros((2, 4), dtype=np.float32))
+        registry.upsert("/books/a.pdf", title="Book A", topic=None, tags=[])
+        result = runner.invoke(main, ["delete", "/books/a.pdf"])
+        assert result.exit_code == 0
+        assert "Удалено: Book A (2 chunks)" in result.output
+        assert registry.get("/books/a.pdf") is None
+        assert storage.count_by_source("/books/a.pdf") == 0
+
+    def test_delete_untitled_shows_source(self, runner, fake_backends):
+        storage, registry = fake_backends
+        storage.append([_mk_chunk("/books/a.pdf", 0)], np.zeros((1, 4), dtype=np.float32))
+        registry.upsert("/books/a.pdf", title=None, topic=None, tags=[])
+        result = runner.invoke(main, ["delete", "/books/a.pdf"])
+        assert result.exit_code == 0
+        assert "Удалено: /books/a.pdf (1 chunks)" in result.output
+
+    def test_delete_missing_exits_1(self, runner, fake_backends):
+        result = runner.invoke(main, ["delete", "/books/nope.pdf"])
+        assert result.exit_code == 1
+        assert "не найден" in result.output
+        assert "docling-rag list" in result.output

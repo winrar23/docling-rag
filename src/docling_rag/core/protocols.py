@@ -27,6 +27,10 @@ class StorageBackend(Protocol):
         """Delete all chunks from the given source file."""
         ...
 
+    def count_by_source(self, source_file: str) -> int:
+        """Return number of chunks stored for the given source file."""
+        ...
+
     def search(
         self,
         query_embedding: np.ndarray,
