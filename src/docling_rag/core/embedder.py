@@ -8,7 +8,7 @@ class Embedder:
     Model is loaded once at __init__.
     """
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(self, model_name: str = "deepvk/USER-bge-m3") -> None:
         self._model = SentenceTransformer(model_name)
         self._dim: int = self._model.get_sentence_embedding_dimension()
 
@@ -18,7 +18,7 @@ class Embedder:
             texts: list of strings to embed
             batch_size: number of texts to encode in each batch (default 32)
         Returns:
-            np.ndarray shape (N, 384), L2-normalized float32 vectors
+            np.ndarray shape (N, dim модели; USER-bge-m3 -> 1024), L2-normalized float32
         """
         if not texts:
             return np.empty((0, self._dim), dtype=np.float32)

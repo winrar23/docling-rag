@@ -16,10 +16,11 @@ def test_defaults_include_agent_keys(tmp_path):
 def test_defaults_preserve_existing_keys(tmp_path):
     """load_config with no config file preserves existing non-agent defaults."""
     cfg = load_config(tmp_path / "nonexistent.yaml")
-    assert cfg["embedding_model"] == "all-MiniLM-L6-v2"
+    assert cfg["embedding_model"] == "deepvk/USER-bge-m3"
     assert cfg["top_k_results"] == 5
     assert cfg["data_dir"] == "data"
     assert cfg["log_file"] == "logs/search.log"
+    assert cfg["chunk_max_tokens"] == 512
 
 
 def test_user_config_overrides_agent_defaults(tmp_path):
@@ -62,3 +63,15 @@ def test_unknown_keys_warn(tmp_path, capsys):
     p.write_text("top_k_result: 10\n")  # опечатка
     load_config(p, required=True)
     assert "top_k_result" in capsys.readouterr().err
+
+
+def test_database_url_env_overrides_config(tmp_path, monkeypatch):
+    p = tmp_path / "config.yaml"
+    p.write_text("database_url: postgresql://cfg:cfg@cfg:5432/cfg\n", encoding="utf-8")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://env:env@env:5432/env")
+    assert load_config(p, required=True)["database_url"] == "postgresql://env:env@env:5432/env"
+
+
+def test_database_url_defaults_and_config(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert "127.0.0.1:5432/docling_rag" in load_config(tmp_path / "nope.yaml")["database_url"]

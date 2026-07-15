@@ -1,11 +1,12 @@
 # cli/config_loader.py
+import os
 import sys
 from pathlib import Path
 
 import yaml
 
 _DEFAULTS = {
-    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model": "deepvk/USER-bge-m3",
     "top_k_results": 5,
     "data_dir": "data",
     "log_file": "logs/search.log",
@@ -14,6 +15,8 @@ _DEFAULTS = {
     "llm_api_key": "lm-studio",
     "llm_model": "local-model",
     "agent_top_k": 5,
+    "database_url": "postgresql://docling:docling@127.0.0.1:5432/docling_rag",
+    "chunk_max_tokens": 512,
 }
 
 
@@ -39,4 +42,9 @@ def load_config(config_path: str | Path = "config.yaml", *, required: bool = Fal
     if unknown:
         print(f"Предупреждение: неизвестные ключи конфига: {', '.join(sorted(unknown))}", file=sys.stderr)
     cfg.update(user_cfg)
+
+    env_url = os.environ.get("DATABASE_URL")
+    if env_url:
+        cfg["database_url"] = env_url
+
     return cfg

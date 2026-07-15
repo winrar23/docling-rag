@@ -2,6 +2,8 @@ import pytest
 from click.testing import CliRunner
 
 _HERMETIC_DEFAULTS = {
+    # embedding_model остаётся all-MiniLM-L6-v2 (не деф. deepvk/USER-bge-m3 — 2.3 ГБ):
+    # CLI unit-тесты мокают Embedder, но герметичный дефолт не должен указывать на тяжёлую модель.
     "embedding_model": "all-MiniLM-L6-v2",
     "top_k_results": 5,
     "data_dir": "data",
@@ -11,6 +13,10 @@ _HERMETIC_DEFAULTS = {
     "llm_api_key": "lm-studio",
     "llm_model": "local-model",
     "agent_top_k": 5,
+    # порт 1 — заведомо несоединяемый: юнит-тест, случайно дошедший до реального
+    # соединения с БД, падает быстро и громко вместо зависания/долгого таймаута.
+    "database_url": "postgresql://test:test@127.0.0.1:1/test",
+    "chunk_max_tokens": 512,
 }
 
 

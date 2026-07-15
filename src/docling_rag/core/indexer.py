@@ -26,6 +26,7 @@ def index_files(
     storage: StorageBackend,
     registry: DocumentRegistryBackend,
     embedding_model: str,
+    chunk_max_tokens: int = 512,
     title: str | None = None,
     topic: str | None = None,
     tags: Sequence[str] = (),
@@ -36,7 +37,9 @@ def index_files(
         try:
             source = str(Path(file).resolve())
             doc = parser.parse(file)
-            chunks = chunk_document(doc, source_file=source, embedding_model=embedding_model)
+            chunks = chunk_document(
+                doc, source_file=source, embedding_model=embedding_model, max_tokens=chunk_max_tokens
+            )
             if not chunks:
                 report.files_ok += 1
                 continue

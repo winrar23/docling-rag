@@ -74,8 +74,8 @@ def add(
     embedder = Embedder(model_name=cfg["embedding_model"])
     storage = get_storage(data_dir)
     registry = DocRegistry(data_dir=data_dir)
-    report = index_files(files, parser, embedder, storage, registry,
-                         cfg["embedding_model"], title=title, topic=topic, tags=tags)
+    report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
+                         chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags)
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
