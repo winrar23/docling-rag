@@ -21,7 +21,7 @@ def _seeded_deps() -> AgentDeps:
     chunk = Chunk(text="Data Vault uses hubs and satellites.", source_file="dv.pdf",
                   chunk_id=0, page_number=42, element_type="text",
                   headings=["Ch 2"], context_text="ctx")
-    storage.save([chunk], np.ones((1, 4), dtype=np.float32) / 2.0)
+    storage.append([chunk], np.ones((1, 4), dtype=np.float32) / 2.0)
     registry.upsert("dv.pdf", title="DV Book", topic="dwh", tags=["arch"])
     return AgentDeps(embedder=FakeEmbedder(), storage=storage, registry=registry, top_k=3)
 

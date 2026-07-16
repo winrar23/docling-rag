@@ -11,10 +11,6 @@ class StorageBackend(Protocol):
     - tests.fakes.InMemoryStorage (unit tests)
     """
 
-    def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
-        """Save chunks and embeddings (overwrites)."""
-        ...
-
     def append(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
         """Append new chunks to existing storage."""
         ...

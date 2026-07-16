@@ -22,19 +22,10 @@ class InMemoryStorage:
         self._emb: np.ndarray | None = None
         self._meta: list[dict] = []
 
-    def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
-        if len(chunks) != embeddings.shape[0]:
-            raise ValueError("chunks/embeddings length mismatch")
-        self._emb = embeddings.copy()
-        self._meta = [_chunk_to_meta(c) for c in chunks]
-
     def append(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
         if len(chunks) != embeddings.shape[0]:
             raise ValueError("chunks/embeddings length mismatch")
-        if self._emb is None:
-            self.save(chunks, embeddings)
-            return
-        self._emb = np.vstack([self._emb, embeddings])
+        self._emb = embeddings.copy() if self._emb is None else np.vstack([self._emb, embeddings])
         self._meta = self._meta + [_chunk_to_meta(c) for c in chunks]
 
     def load(self) -> tuple[np.ndarray, list[dict]]:

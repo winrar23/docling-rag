@@ -84,13 +84,6 @@ class DBStorage:
                 f"chunks/embeddings length mismatch: {len(chunks)} chunks vs {embeddings.shape[0]} embeddings"
             )
 
-    def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
-        self._check_lengths(chunks, embeddings)
-        with _translate_db_errors(), self._connect() as conn:
-            conn.execute("DELETE FROM chunks")
-            self._insert(conn, chunks, embeddings)
-            conn.commit()
-
     def append(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
         self._check_lengths(chunks, embeddings)
         with _translate_db_errors(), self._connect() as conn:

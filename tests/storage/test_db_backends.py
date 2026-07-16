@@ -92,13 +92,6 @@ class TestDBStorage:
             ).fetchone()
         assert row is not None
 
-    def test_save_overwrites(self, clean_db):
-        s = self._storage(clean_db)
-        s.append([_chunk("/books/a.pdf", 0)], _vec(1).reshape(1, -1))
-        s.save([_chunk("/books/b.pdf", 0)], _vec(2).reshape(1, -1))
-        _, meta = s.load()
-        assert [m["source_file"] for m in meta] == ["/books/b.pdf"]
-
     def test_length_mismatch_raises_value_error(self, clean_db):
         with pytest.raises(ValueError):
             self._storage(clean_db).append([_chunk("/books/a.pdf", 0)], np.stack([_vec(1), _vec(2)]))
