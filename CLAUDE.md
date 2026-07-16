@@ -1,50 +1,41 @@
 # docling-rag
 
 CLI-утилита для семантического поиска по технической документации на базе Docling.
-RAG-система: Docling → chunking → Sentence Transformers → NumPy cosine search.
+RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2 открыт открывающими коммитами — пины torch==2.13.0/torchvision==0.28.0 (cpu) и pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR-моделей, общий образ `docling-rag:local` (один `image:` для api/api-dev/cli). 108 unit/fast-тестов + 3 integration tests + 1 slow test, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, CLI стал docker-only; `FileStorage`/`DocRegistry` и флаг `--data-dir` удалены. 100 unit/fast + 21 integration + 1 slow тест, все зелёные.
 
-## Stack (MVP)
+## Stack
 
-- Python 3.10–3.12, Docling, Sentence Transformers (`all-MiniLM-L6-v2`), NumPy, Click, PyYAML
+- Python 3.10–3.12, Docling, Sentence Transformers (`deepvk/USER-bge-m3`), PostgreSQL 17 + pgvector, psycopg3, NumPy, Click, PyYAML
 
-## Commands (dev)
+## Commands (docker) — основной способ запуска
 
-```bash
-# Установка зависимостей
-uv pip install -e ".[dev]"
-
-# Проверить установку
-docling-rag --help
-
-# CLI команды
-docling-rag init              # инициализировать хранилище в текущей директории
-docling-rag add <path>        # добавить документ или папку в индекс
-docling-rag add <path> --title "..." --topic "..." --tag arch --tag solid  # с метаданными
-docling-rag search "<query>"  # семантический поиск (топ-5 результатов)
-docling-rag search "<query>" --tag arch --topic "architecture"  # с фильтром
-docling-rag list              # список проиндексированных документов
-docling-rag ask "<вопрос>"    # задать вопрос агенту (требуется agent_enabled: true + LM Studio)
-# update <file> — P1, не реализован
-
-# Тесты
-python3 -m pytest tests/ -m "not integration and not slow"          # быстрые (108 тестов, 4 deselected)
-python3 -m pytest tests/test_integration.py -m integration -s       # e2e тесты (~30 сек)
-python3 -m pytest tests/test_agent_integration.py -m integration -s # agent e2e тест
-```
-
-## Commands (docker)
+CLI требует postgres, поэтому боевой запуск только через compose.
 
 ```bash
 cp .env.example .env   # пути volumes и порты — правь под себя
 docker compose up -d --wait          # postgres + api (health: :8000/health)
-docker compose run --rm cli init
-docker compose run --rm cli add /books/my-book.pdf --title "My Book"
-docker compose run --rm cli search "запрос"
+docker compose run --rm cli init                      # DDL: extension + таблицы + HNSW (идемпотентно)
+docker compose run --rm cli add /books/my-book.pdf --title "My Book" --topic "..." --tag arch
+docker compose run --rm cli search "запрос"           # + --tag/--topic/--top-k
+docker compose run --rm cli list
+docker compose run --rm cli delete /books/my-book.pdf  # документ + его chunks (каскад)
 docker compose run --rm cli ask "вопрос"   # LM Studio на хосте, порт 1234
 docker compose run --rm cli test tests/ -m "not integration and not slow"  # тесты в контейнере
 docker compose --profile dev up api-dev    # hot-reload API на :8001
+# update <file> — P1, не реализован
+```
+
+## Commands (dev на хосте — только тесты)
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev,agent,api]"
+
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 100 passed, 22 deselected (герметичны, postgres НЕ нужен)
+docker compose up -d postgres                                # прекондишн для integration
+python3 -m pytest tests/ -m integration                      # 21 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 ```
 
 ## Architecture
@@ -55,74 +46,99 @@ docker compose --profile dev up api-dev    # hot-reload API на :8001
 docling-rag/
 ├── src/docling_rag/
 │   ├── cli/
-│   │   ├── commands.py      # Click: init, add, search, list, ask + exit-код контракт
-│   │   └── config_loader.py # load_config(path, *, required=) + дефолты (агент-ключи включены)
+│   │   ├── commands.py      # Click: init, add, search, list, delete, ask + exit-код контракт
+│   │   └── config_loader.py # load_config(path, *, required=) + дефолты + приоритет env DATABASE_URL
 │   ├── core/
 │   │   ├── parser.py     # Docling парсер → DoclingDocument; SUPPORTED_EXTENSIONS = {.pdf, .docx, .md}
-│   │   ├── chunker.py    # chunk_document(); HybridChunker кеширован per embedding_model (lru_cache)
+│   │   ├── chunker.py    # chunk_document(); HybridChunker кеширован per (embedding_model, max_tokens)
 │   │   ├── embedder.py   # Sentence Transformers, L2-нормализация, настраиваемый batch_size
 │   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store, per-file error isolation
 │   │   ├── search.py     # run_search() + resolve_allowed_sources() — переиспользуются CLI search и agent tool
 │   │   ├── agent.py      # create_agent(model) + build_lmstudio_model(...); требует .[agent]
-│   │   ├── protocols.py  # StorageBackend + DocumentRegistryBackend Protocol — используются в аннотациях (search.py, indexer.py)
-│   │   └── errors.py     # StorageError, UnsupportedFormatError, LLMUnavailableError
+│   │   ├── protocols.py  # StorageBackend (+count_by_source) + DocumentRegistryBackend Protocol — в аннотациях (search.py, indexer.py)
+│   │   └── errors.py     # StorageError, StorageUnavailableError, StorageSchemaMissingError, UnsupportedFormatError, LLMUnavailableError
 │   ├── api/
 │   │   └── app.py        # FastAPI health-заглушка (GET /health); требует .[api]; REST каталога/чата — этап 4
 │   └── storage/
-│       ├── file_storage.py  # NumPy-хранилище с атомарными записями (StorageBackend impl)
-│       └── doc_registry.py  # Метаданные документов (title, topic, tags) → doc_index.json (DocumentRegistryBackend impl)
-├── data/                    # всё содержимое в .gitignore
-│   ├── embeddings.npy       # Матрица эмбеддингов (N × 384, float32)
-│   ├── metadata.json        # Метаданные chunks
-│   └── doc_index.json       # Реестр документов (title, topic, tags, added_at)
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/test_*.py — 108 fast + 3 integration + 1 slow
-├── config.yaml              # top_k_results, embedding_model (chunk_size удалён — HybridChunker авто)
+│       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents + chunks + HNSW-индекс; init_schema(dsn)
+│       ├── db_storage.py    # chunks+embeddings в pg (StorageBackend impl); _translate_db_errors psycopg→доменные
+│       └── db_registry.py   # documents: title/topic/tags/added_at (DocumentRegistryBackend impl)
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 100 fast + 21 integration + 1 slow
+├── config.yaml              # embedding_model, chunk_max_tokens, top_k_results, database_url, log_file
 ├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/test/cli
-├── compose.yaml             # postgres + api + api-dev (profile dev) + cli (profile cli), bind-mounts из .env
-├── .env.example             # DATA_DIR/PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты
+├── compose.yaml             # postgres + api + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
+├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
 └── docker/
     ├── entrypoint.sh          # api → uvicorn :8000; test → pytest; иначе → docling-rag CLI
-    └── config.container.yaml  # запекается в /app/config.yaml: data_dir: /data, LLM через host.docker.internal:1234
+    └── config.container.yaml  # запекается в /app/config.yaml: database_url на хост `postgres`, LLM через host.docker.internal:1234
 ```
+
+Схема БД (`db_schema.py`): `documents(source_file PK, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`).
 
 ## Gotchas
 
-- **HybridChunker из docling-core** — разбивает по структуре документа (heading → секция), токен-лимит из tokenizer'а (all-MiniLM-L6-v2 → 256 токенов), мёрджит мелкие соседние chunks
-- **HybridChunker кеширован per embedding_model** — `core/chunker.py::_get_chunker()` обёрнут в `@lru_cache(maxsize=4)`: повторные вызовы `chunk_document()` с той же моделью не пересоздают tokenizer/chunker
+### Хранилище (pgvector)
+
+- **postgres — ЕДИНСТВЕННОЕ хранилище** (с pgvector-миграции этапа 2). Файлового бэкенда нет: `FileStorage`/`DocRegistry`, `data_dir`, `--data-dir`, `/data`-маунты удалены. Индекс живёт в `PGDATA_DIR`
+- **DSN: env `DATABASE_URL` > ключ `database_url` в config.yaml** — приоритет реализован в `config_loader.load_config()` (env применяется ПОСЛЕ `cfg.update(user_cfg)`). Дефолт ключа — `postgresql://docling:docling@127.0.0.1:5432/docling_rag`; в compose всем сервисам (api/api-dev/cli) выставлен `DATABASE_URL` на хост `postgres`. `database_url` в `docker/config.container.yaml` — понятный фолбэк для `docker run` без compose
+- **`vector(1024)` — литерал в DDL, привязан к USER-bge-m3** — смена embedding-модели требует правки DDL И полной переиндексации (не только «переиндексации», как было с NumPy)
+- **`init` = DDL, а не создание папки** — `init_schema(dsn)` идемпотентен (`CREATE EXTENSION/TABLE/INDEX IF NOT EXISTS`), печатает `Схема БД инициализирована: <DSN с замаскированным паролем>`; `_mask_dsn()` прячет пароль во ВСЕХ сообщениях
+- **Доменные ошибки хранилища НЕ наследуют `StorageError`** (`core/errors.py`) — иначе существующие `except StorageError` («Хранилище повреждено») перехватили бы инфраструктурные сбои. `storage/db_storage.py::_translate_db_errors()` (contextmanager, используется и `DBRegistry`) переводит `psycopg.OperationalError` → `StorageUnavailableError` («PostgreSQL недоступен» + подсказка `docker compose up -d postgres`), `psycopg.errors.UndefinedTable` → `StorageSchemaMissingError` («Выполните: docling-rag init»), `ProgrammingError` с "vector" в тексте → `StorageSchemaMissingError`. Неожиданные ошибки пробрасываются как есть. **`core/` и `cli/` не импортируют psycopg** — тест-стражник `test_core_does_not_import_storage_package` остаётся зелёным
+- **Соединение открывается на операцию** (`DBStorage._connect()`), пула нет — CLI короткоживущий. Конструирование `DBStorage(dsn)`/`DBRegistry(dsn)` к БД НЕ подключается (на этом стоит `tests/core/test_protocols.py` с фиктивным DSN)
+- **`headings`: list → json-строка на запись, list на чтение** — psycopg не адаптирует list в jsonb автоматически, поэтому `json.dumps(...)` в `_insert`; из jsonb приходит уже list. Формат dict метаданных chunk'а сохранён байт-в-байт (`text`, `source_file`, `chunk_id`, `page_number`, `element_type`, `headings`)
+- **`_to_numpy()` в db_storage** — pgvector-loader возвращает объект `pgvector.Vector` (не list/ndarray) для колонки `embedding`; конвертация явная
+- **FK-порядок: `append` сам создаёт родительскую строку** — `indexer` вызывает `storage.append()` ДО `registry.upsert()`, поэтому `_insert` делает `INSERT INTO documents (source_file) ... ON CONFLICT DO NOTHING` перед вставкой chunks, иначе FK падает
+- **Контракт пустого хранилища сохранён** — `load()`/`search()` на пустой БД → `FileNotFoundError` (на этом держится exit-код контракт CLI). `search` сначала проверяет `SELECT NOT EXISTS (SELECT 1 FROM chunks)`
+- **`delete SOURCE`** — ключ резолвится (`Path(source).resolve()`), если файл существует, иначе берётся строка как есть (осиротевшие записи удаляемы). `registry.delete()` сносит chunks каскадом, `storage.delete_by_source()` — идемпотентная страховка. Ничего не найдено (нет записи И 0 chunks) → `ClickException` «Документ не найден» + подсказка `docling-rag list`, exit 1. Вывод: `Удалено: <title|key> (N chunks)`
+
+### Embedding-модель и чанкинг
+
+- **`deepvk/USER-bge-m3`, 1024d, БЕЗ префиксов query:/passage:** — модель качается один раз (~2.3 ГБ) в `HF_CACHE_DIR` (`HF_HOME=/hf-cache` в образе)
+- **Имя модели с `/` (org) используется как есть; без `/` — приклеивается `sentence-transformers/`** — `core/chunker.py::_get_chunker()` резолвит `model_id` для `HuggingFaceTokenizer.from_pretrained`
+- **`chunk_max_tokens: 512` — явный ключ конфига, не авто** — у bge-m3 окно 8192 токенов; авто-лимит из tokenizer'а дал бы чанки, убивающие гранулярность поиска. Прокидывается `cli/commands.py::add` → `index_files(..., chunk_max_tokens=...)` → `chunk_document(..., max_tokens=...)`
+- **HybridChunker кеширован per (embedding_model, max_tokens)** — `@lru_cache(maxsize=4)` на `_get_chunker(embedding_model, max_tokens)`; в тестах чистить `_get_chunker.cache_clear()`
+- **Одна embedding-модель для индексации и поиска** — нельзя менять модель без полной переиндексации (и правки `vector(N)` в DDL)
 - **context_text vs text** — `chunk.context_text` = headings + text (используется для эмбеддингов); `chunk.text` = чистый текст (хранится и отображается в поиске)
-- **headings в metadata** — `metadata.json` хранит `headings: list[str]`; `search` отображает их как `[H1 > H2]`
 - **Таблицы и code-блоки** — HybridChunker сохраняет их как атомарные chunks (element_type = "table" или "code")
-- **SUPPORTED_EXTENSIONS — единый источник** — `{".pdf", ".docx", ".md"}` определён только в `core/parser.py`; `.txt` отсутствует (убран из индексации — Docling его некорректно обрабатывал). `cli/commands.py` импортирует эту же константу для фильтрации файлов при `add`, дублирования нет
-- **core/protocols.py — Protocol-абстракция, реально используется в аннотациях** — `StorageBackend`/`DocumentRegistryBackend` типизируют `core/search.py` и `core/indexer.py` (не только duck typing); ни один модуль `core/` не импортирует пакет `storage` напрямую. Тест `test_core_does_not_import_storage_package` это проверяет источниковым grep'ом по `core/search.py`, `core/indexer.py` и `core/agent.py` (для agent.py — чтение исходника с диска, без импорта, чтобы тест не падал на установках без `.[agent]`). `FileStorage`/`DocRegistry` (MVP) заменяемы на pgvector-реализации без изменения вызывающего кода
-- **LLM нет в MVP** — `search` возвращает raw chunks с score, не генерирует ответы (генерация ответов — только через `ask`/agent)
-- **Изображения/диаграммы** — только OCR через Docling; Vision LLM (GPT-4V) — этап 2
-- **Одна embedding-модель для индексации и поиска** — нельзя менять модель без полной переиндексации
-- **Атомарные записи** — `_atomic_save` использует `os.replace()` для предотвращения рассинхронизации `.npy`/`.json`
-- **top-k по умолчанию из config** — `--top-k` без явного значения берёт `top_k_results` из `config.yaml`
-- **`--config` флаг на ВСЕХ командах, включая `list`** — `init`, `add`, `search`, `list`, `ask` все принимают `--config path/to/config.yaml` (гоча про "list только --data-dir" устарела — исправлено в T4/T13). Контракт `load_config(path, *, required=)`: без явного `--config` читается `config.yaml` в cwd с `required=False` (нет файла → тихий fallback на дефолты); при явном `--config PATH` вызывается с `required=True` — если файл не существует, `ConfigError` → `click.ClickException` (exit 1). Невалидный YAML или не-dict корень тоже даёт `ConfigError` независимо от `required`
-- **DocRegistry следует паттерну FileStorage** — тот же `_atomic_save` через `os.replace()`, ключ = `source_file` (резолвленный путь, см. ниже)
-- **CLI mock-паттерн (актуальный)** — патчить `docling_rag.cli.commands.Parser` / `.Embedder` / `.FileStorage` / `.DocRegistry`; `chunk_document` теперь вызывается из `core/indexer.py`, поэтому патчить `docling_rag.core.indexer.chunk_document`, НЕ `docling_rag.cli.commands.chunk_document`
-- **Фильтр поиска: пустой match → пустые результаты** — если `--tag`/`--topic` не совпадает ни с одним документом, `search` возвращает пустой список (не fallback на все документы)
-- **`--topic` сравнивается case-insensitive** — `"Software"` == `"software"` через `.lower()`
-- **Идемпотентный `add` через резолвленные пути** — `add`/`core/indexer.py::index_files()` резолвит путь (`Path(file).resolve()`) ДО вызова `chunk_document`/`registry.upsert`, использует его как `source`; перед `storage.append()` вызывается `storage.delete_by_source(source)`, поэтому повторный `add` того же файла не дублирует chunks, а `registry.upsert` сохраняет `added_at` и не затирает title/topic/tags значениями `None`/пустыми
-- **ВАЖНО: документы, проиндексированные ДО этого рефакторинга, не дедуплицируются при re-add** — `delete_by_source`/`upsert` матчат по точной строке ключа; старые записи индекса могут использовать нерезолвленные (относительные/иные) пути, которые не совпадут с новым резолвленным `source`. Для уже существующих индексов, созданных до stage-0, рекомендуется полная переиндексация (`init` + `add` заново), а не точечный re-add
-- **Изоляция ошибок по файлу в `index_files()`** — путь инициализируется как `str(file)` ДО `try`, резолвится (`Path(file).resolve()`) внутри `try`; если `.resolve()` падает (symlink loop, permission error), ошибка попадает в `report.errors` для этого файла, а batch не прерывается
-- **Exit-код контракт** — `click.ClickException` (невалидный `--config`, повреждённое хранилище `StorageError`, ошибки агента, `agent_enabled: false`) → exit 1. Пустое хранилище (`FileNotFoundError`) → exit 1 только в `search` и `ask`; `list` на пустом хранилище печатает "Хранилище пустое. Документов нет." и завершается нормально с exit 0 (тест `test_list_command_empty_storage` фиксирует `exit_code == 0`). `add` дополнительно делает `raise SystemExit(1)`, если есть `files_failed` ИЛИ `chunks_added == 0` (даже если все файлы формально "ok", но ничего не добавлено); успешные пути → exit 0. Отдельно от этого — собственная валидация параметров Click (`--top-k 0` через `IntRange(min=1)`, несуществующий `file_path` через `click.Path(exists=True)`) даёт `UsageError` → exit 2, а не 1. Ошибки пишутся в stderr (`err=True`)
-- **`ask` требует `.[agent]` и LM Studio** — `uv pip install -e ".[agent]"`, `agent_enabled: true` в config.yaml, LM Studio на `127.0.0.1:1234`
-- **Обнаружение ошибок соединения с LLM — isinstance по цепочке cause/context, НЕ строковый матч** — httpx/openai заворачивают `httpx.ConnectError`/`ConnectTimeout` на несколько уровней глубже builtin `ConnectionError`. `cli/commands.py::_is_connection_error(e)` проходит `e.__cause__ or e.__context__` по цепочке и проверяет `isinstance(cur, (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout))` (раньше — хрупкий матч `"ConnectError" in type(e).__name__`, теперь так НЕ делается)
-- **`_create_and_run_agent` — точка мока для тестов** — сигнатура `_create_and_run_agent(question, cfg, data_dir, top_k) -> str`; в тестах `ask` патчить `docling_rag.cli.commands._create_and_run_agent`, НЕ `create_agent` напрямую
-- **Lazy import + testability** — `_import_agent_module()` — отдельная функция для тестируемого lazy import guard, возвращает кортеж `(create_agent, AgentDeps, build_lmstudio_model)`; патчится через `patch("docling_rag.cli.commands._import_agent_module")`
-- **pydantic-ai API — composable `create_agent(model)`** — `create_agent(model) -> Agent[AgentDeps, str]` принимает ЛЮБУЮ pydantic-ai `Model` (включая `pydantic_ai.models.test.TestModel`), не строит модель сама; `build_lmstudio_model(model_name, base_url, api_key) -> OpenAIChatModel` собирает `OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=base_url, api_key=api_key))` отдельно — LM Studio говорит на Chat Completions API, поэтому явный `OpenAIChatModel`, а не `"openai:"`-префикс (тот означал бы Responses API). `tests/test_agent.py` покрывает agent tool через `TestModel`: реальный поиск по seeded storage выполняется (`test_agent_tool_executes_real_search`), динамические инструкции подставляют список документов (`test_dynamic_instructions_list_documents`). Импорты: `from pydantic_ai import Agent, RunContext`; `from pydantic_ai.models.openai import OpenAIChatModel`; `from pydantic_ai.providers.openai import OpenAIProvider`; `result.output` для получения ответа
-- **Все volumes — bind-mounts из `.env`** — требование пользователя: расположение данных выбирает он. `DATA_DIR`/`PGDATA_DIR`/`HF_CACHE_DIR`/`UPLOADS_DIR`/`BOOKS_DIR`, дефолты `./volumes/*` и `./books`. Named volumes в compose НЕ использовать
-- **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`): `data_dir: /data`, LLM через `host.docker.internal:1234`
-- **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно (не только `torch`) — PyPI-колесо `torchvision` бинарно несовместимо с CPU-сборкой `torch` с того же индекса и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета берутся с одного CPU-индекса одной командой. Версии запинены (первый коммит этапа 2); при осознанном апгрейде пары менять обе версии разом и проверять контейнерный тест-прогон. Дрейф ловится assert-слоем сразу после deps-установки: сборка падает, если deps-слой молча переустановил пару
-- **Пре-бейк RapidOCR-моделей в образе** — rapidocr в образе работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей в site-packages при первом парсе PDF; Dockerfile конструирует RapidOcrModel на этапе сборки, чтобы модели легли в слой образа. Бандленные .onnx-модели rapidocr при torch-движке не используются. Внутренний импорт docling.models.stages.ocr.rapid_ocr_model защищён пином docling==2.113.0 в pyproject — апгрейд docling осознанный (правка пина + ребилд + контейнерный прогон)
-- **postgres в compose поднимается, но приложением не используется до этапа 2** — FileStorage остаётся рабочим бэкендом, данные в `/data`
-- **api на этапе 1 — только `GET /health`** — REST каталога/чата появится на этапе 4
 
-## Non-Goals (MVP)
+### Тесты
 
-Не используется в MVP: ChromaDB, FAISS, LangChain, OpenAI API, веб-интерфейс, БД
+- **Быстрый суит герметичен: postgres НЕ нужен** — юниты работают на `tests/fakes.py::InMemoryStorage`/`InMemoryRegistry` (реализуют Protocol'ы, семантика та же: пустое → `FileNotFoundError`). Проверка герметичности: `docker compose stop postgres && pytest -m "not integration and not slow"` — зелёный
+- **CLI mock-паттерн (актуальный)** — фикстура `fake_backends` (`tests/conftest.py`) патчит `docling_rag.cli.commands.DBStorage`/`.DBRegistry` на in-memory fake'и и отдаёт `(storage, registry)` для сидирования. Патчить `docling_rag.cli.commands.Parser` / `.Embedder`; `init` — патчить `docling_rag.cli.commands.init_schema`; `chunk_document` вызывается из `core/indexer.py` → патчить `docling_rag.core.indexer.chunk_document`, НЕ `cli.commands.chunk_document`. `ask` — патчить `docling_rag.cli.commands._create_and_run_agent` (сигнатура `(question, cfg, top_k) -> str`, без `data_dir`)
+- **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
+- **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
+- **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
+- **Счётчики** — 100 fast (22 deselected), 21 integration, 1 slow
+
+### CLI-контракты
+
+- **Exit-код контракт** — `click.ClickException` (невалидный `--config`, `StorageError`, `StorageUnavailableError`, `StorageSchemaMissingError`, ошибки агента, `agent_enabled: false`, `delete` несуществующего) → exit 1. Пустое хранилище (`FileNotFoundError`) → exit 1 только в `search` и `ask`; `list` на пустом хранилище печатает «Хранилище пустое. Документов нет.» и завершается с exit 0 (тест `test_list_command_empty_storage`). `add` дополнительно делает `raise SystemExit(1)`, если есть `files_failed` ИЛИ `chunks_added == 0`. Валидация параметров Click (`--top-k 0` через `IntRange(min=1)`, несуществующий `file_path` через `click.Path(exists=True)`) → `UsageError`, exit 2. Ошибки — в stderr (`err=True`)
+- **`--config` на ВСЕХ командах** — `init`, `add`, `search`, `list`, `delete`, `ask`. Контракт `load_config(path, *, required=)`: без явного `--config` читается `config.yaml` в cwd с `required=False` (нет файла → тихий fallback на дефолты); при явном `--config PATH` — `required=True`, файла нет → `ConfigError` → `ClickException` (exit 1). Невалидный YAML или не-dict корень → `ConfigError` независимо от `required`. Неизвестные ключи → warning в stderr
+- **top-k по умолчанию из config** — `--top-k` без значения берёт `top_k_results`
+- **SUPPORTED_EXTENSIONS — единый источник** — `{".pdf", ".docx", ".md"}` только в `core/parser.py`; `.txt` убран (Docling обрабатывал некорректно). `cli/commands.py` импортирует эту же константу
+- **Идемпотентный `add` через резолвленные пути** — `index_files()` резолвит путь (`Path(file).resolve()`) ДО `chunk_document`/`registry.upsert`; перед `storage.append()` вызывается `storage.delete_by_source(source)`; `registry.upsert` сохраняет `added_at` и не затирает title/topic/tags значениями `None`/пустыми (в SQL — `COALESCE` + `CASE WHEN cardinality(EXCLUDED.tags) > 0`)
+- **Изоляция ошибок по файлу в `index_files()`** — путь инициализируется как `str(file)` ДО `try`, резолвится внутри `try`; падение `.resolve()` (symlink loop, permission) попадает в `report.errors`, batch не прерывается
+- **Фильтр поиска: пустой match → пустые результаты** — `--tag`/`--topic` не совпал ни с одним документом → пустой список (не fallback на все документы). `--topic` сравнивается case-insensitive
+- **core/protocols.py — Protocol-абстракция, реально используется в аннотациях** — `StorageBackend` (`save`/`append`/`load`/`delete_by_source`/`count_by_source`/`search`) и `DocumentRegistryBackend` типизируют `core/search.py` и `core/indexer.py`. Тест `test_core_does_not_import_storage_package` проверяет источниковым grep'ом `core/search.py`, `core/indexer.py`, `core/agent.py` (для agent.py — чтение исходника с диска, без импорта: тест не должен падать без `.[agent]`)
+- **LLM только в `ask`** — `search` возвращает raw chunks со score, ответы не генерирует
+- **`ask` требует `.[agent]` и LM Studio** — `agent_enabled: true` (в контейнерном конфиге уже true), LM Studio на `127.0.0.1:1234` (из контейнера — `host.docker.internal:1234`)
+- **Обнаружение ошибок соединения с LLM — isinstance по цепочке cause/context, НЕ строковый матч** — `cli/commands.py::_is_connection_error(e)` идёт по `e.__cause__ or e.__context__` и проверяет `isinstance(cur, (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout))`
+- **Lazy import + testability** — `_import_agent_module()` возвращает `(create_agent, AgentDeps, build_lmstudio_model)`; патчится через `patch("docling_rag.cli.commands._import_agent_module")`
+- **pydantic-ai API — composable `create_agent(model)`** — принимает ЛЮБУЮ pydantic-ai `Model` (включая `TestModel`), не строит модель сама; `build_lmstudio_model(model_name, base_url, api_key) -> OpenAIChatModel` собирает `OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=..., api_key=...))` отдельно — LM Studio говорит на Chat Completions API, поэтому явный `OpenAIChatModel`, а не `"openai:"`-префикс (тот означал бы Responses API). Импорты: `from pydantic_ai import Agent, RunContext`; `from pydantic_ai.models.openai import OpenAIChatModel`; `from pydantic_ai.providers.openai import OpenAIProvider`; `result.output` для ответа
+
+### Docker
+
+- **Все volumes — bind-mounts из `.env`** — требование пользователя: расположение данных выбирает он. `PGDATA_DIR`/`HF_CACHE_DIR`/`UPLOADS_DIR`/`BOOKS_DIR`, дефолты `./volumes/*` и `./books`. Named volumes в compose НЕ использовать
+- **`cli` зависит от healthy postgres** (`depends_on: postgres: condition: service_healthy`) — негативный сценарий «postgres лежит» воспроизводится через `docker compose run --rm --no-deps cli ...`
+- **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`)
+- **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно — PyPI-колесо бинарно несовместимо с CPU-сборкой torch и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета — с одного CPU-индекса одной командой. Версии запинены; при осознанном апгрейде менять обе разом и проверять контейнерный тест-прогон. Дрейф ловится assert-слоем сразу после deps-установки
+- **Пре-бейк RapidOCR-моделей в образе** — rapidocr работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей при первом парсе PDF; Dockerfile конструирует `RapidOcrModel(... backend='torch')` на этапе сборки. Внутренний импорт `docling.models.stages.ocr.rapid_ocr_model` защищён пином `docling==2.113.0` — апгрейд docling осознанный (пин + ребилд + контейнерный прогон)
+- **api — только `GET /health`** — REST каталога/чата появится на этапе 4
+- **OCR-кириллица не поддержана** — bundled-наборы RapidOCR в docling: english/latin/chinese. Актуально только для сканов без текстового слоя; нужен другой движок (easyocr/tesseract) — дальний бэклог
+
+## Non-Goals
+
+Не используется: ChromaDB, FAISS, LangChain, OpenAI API (внешний), веб-интерфейс (этап 4)
 
 ## Git workflow
 

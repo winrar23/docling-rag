@@ -1,6 +1,11 @@
-embedding_model: all-MiniLM-L6-v2
+# Embedding-модель: имя с org ("deepvk/USER-bge-m3") используется как есть,
+# без org — приклеивается префикс sentence-transformers/. Смена модели = полная переиндексация.
+embedding_model: deepvk/USER-bge-m3
+# Токен-лимит чанка (у bge-m3 окно 8192 — авто-лимит убил бы гранулярность поиска)
+chunk_max_tokens: 512
 top_k_results: 5
-data_dir: data
+# DSN postgres+pgvector; env DATABASE_URL приоритетнее этого ключа
+database_url: postgresql://docling:docling@127.0.0.1:5432/docling_rag
 log_file: logs/search.log
 
 # Agent settings (requires: uv pip install -e ".[agent]")

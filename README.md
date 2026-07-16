@@ -1,59 +1,40 @@
 # docling-rag
 
-**v0.1.2** — CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown, нарезает на chunks с учётом структуры документа (заголовки, таблицы, код), строит векторный индекс и отвечает на запросы ближайшими по смыслу фрагментами.
+**v0.2.0** — CLI-утилита для семантического поиска по технической документации. Парсит PDF, DOCX, Markdown, нарезает на chunks с учётом структуры документа (заголовки, таблицы, код), строит векторный индекс в PostgreSQL + pgvector и отвечает на запросы ближайшими по смыслу фрагментами.
 
 > Два режима: `search` — сырые chunks с cosine similarity score; `ask` — ответ на вопрос через локальный LLM-агент (100% оффлайн, через LM Studio).
 
 ---
 
-## Быстрый старт
+## Быстрый старт (Docker)
+
+CLI работает поверх PostgreSQL и запускается **docker-only**. Требования на хосте: Docker Desktop + LM Studio (только для `ask`).
 
 ```bash
-# 1. Установка
 git clone https://github.com/winrar23/docling-rag.git
 cd docling-rag
-uv pip install -e .
-
-# 2. Инициализация хранилища
-docling-rag init
-
-# 3. Добавить документы (файл или папку)
-docling-rag add ./docs/
-
-# 3а. С метаданными (опционально)
-docling-rag add architecture.pdf --title "Clean Architecture" --topic "software" --tag arch --tag solid
-
-# 4. Поиск
-docling-rag search "схема звезда и таблицы фактов"
-
-# 4а. Поиск с фильтром по тегу
-docling-rag search "dependency inversion" --tag arch
-
-# 5. Посмотреть что проиндексировано
-docling-rag list
-```
-
-Первый запуск скачает модель `all-MiniLM-L6-v2` (~90 МБ) и закэширует её локально.
-
----
-
-## Docker
-
-Требования на хосте: Docker Desktop + LM Studio (для `ask`).
-
-```bash
 cp .env.example .env   # пути volumes и порты — правь под себя
+
 docker compose up -d --wait          # postgres + api (health: :8000/health)
-docker compose run --rm cli init
-docker compose run --rm cli add /books/my-book.pdf --title "My Book"
-docker compose run --rm cli search "запрос"
+docker compose run --rm cli init     # схема БД (идемпотентно)
+
+# Книги кладутся в ${BOOKS_DIR:-./books} и видны контейнеру как /books
+docker compose run --rm cli add /books/my-book.pdf --title "My Book" --topic "software" --tag arch
+docker compose run --rm cli search "схема звезда и таблицы фактов"
+docker compose run --rm cli list
+docker compose run --rm cli delete /books/my-book.pdf
 docker compose run --rm cli ask "вопрос"   # LM Studio на хосте, порт 1234
+
 docker compose run --rm cli test tests/ -m "not integration and not slow"  # тесты в контейнере
 docker compose --profile dev up api-dev    # hot-reload API на :8001
 ```
 
-Все данные лежат на путях хоста из `.env` (`DATA_DIR`, `PGDATA_DIR`, `HF_CACHE_DIR`,
-`UPLOADS_DIR`, `BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются.
+Все данные лежат на путях хоста из `.env` (`PGDATA_DIR`, `HF_CACHE_DIR`, `UPLOADS_DIR`,
+`BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются. Индекс живёт
+в postgres (`PGDATA_DIR`), файлового хранилища больше нет.
+
+> **Первый `add` скачает embedding-модель `deepvk/USER-bge-m3` (~2.3 ГБ)** в `HF_CACHE_DIR`
+> и закэширует её. Индексация на CPU небыстрая — большой PDF может занять минуты.
 
 ### PyTorch: CPU или GPU
 
@@ -62,7 +43,7 @@ Desktop на macOS — это Linux-VM без доступа к Metal), а CUDA-
 бесполезных NVIDIA-библиотек (образ был бы ~6 ГБ вместо 2.4). CPU-сборка работает на
 любой машине; на функциональность выбор не влияет — только на скорость `add`/`search`.
 
-При установке на хост (`uv pip install -e ".[dev]"`):
+При установке на хост (`uv pip install -e ".[dev]"`, для разработки):
 
 - **macOS (Apple Silicon)** — ничего выбирать не нужно: обычный wheel с PyPI уже включает
   поддержку Apple-GPU (backend MPS, работает с объединённой памятью). CUDA-сборка на Mac
@@ -77,20 +58,23 @@ Desktop на macOS — это Linux-VM без доступа к Metal), а CUDA-
 
 ## Команды
 
-### `init` — инициализировать хранилище
+Все команды принимают `[--config config.yaml]`. Подключение к БД: env `DATABASE_URL`
+(в compose уже выставлен) приоритетнее ключа `database_url` из конфига.
+
+### `init` — инициализировать схему БД
 
 ```bash
-docling-rag init [--data-dir data] [--config config.yaml]
+docker compose run --rm cli init
 ```
 
-Создаёт директорию хранилища и папку для логов. Безопасно запускать повторно.
+Создаёт расширение pgvector, таблицы и HNSW-индекс. Идемпотентно — безопасно запускать повторно.
 
 ---
 
 ### `add` — добавить документы в индекс
 
 ```bash
-docling-rag add <путь> [--title TEXT] [--topic TEXT] [--tag TEXT]... [--data-dir data] [--config config.yaml]
+docker compose run --rm cli add <путь> [--title TEXT] [--topic TEXT] [--tag TEXT]...
 ```
 
 Принимает файл или папку. Поддерживаемые форматы: **PDF, DOCX, MD**.
@@ -100,11 +84,12 @@ docling-rag add <путь> [--title TEXT] [--topic TEXT] [--tag TEXT]... [--data
 - `--tag` — тег, можно указывать несколько: `--tag arch --tag solid`
 - Таблицы и code-блоки — отдельные неделимые chunks
 - При ошибке на конкретном файле — пропускает и продолжает
+- Повторный `add` того же файла не дублирует chunks (идемпотентно)
 
 ```bash
-docling-rag add architecture.pdf
-docling-rag add book.pdf --title "Clean Architecture" --topic "software" --tag arch --tag solid
-docling-rag add ./docs/ --topic "project docs"
+docker compose run --rm cli add /books/architecture.pdf
+docker compose run --rm cli add /books/book.pdf --title "Clean Architecture" --topic "software" --tag arch --tag solid
+docker compose run --rm cli add /books/ --topic "project docs"
 ```
 
 ---
@@ -112,20 +97,20 @@ docling-rag add ./docs/ --topic "project docs"
 ### `search` — семантический поиск
 
 ```bash
-docling-rag search "<запрос>" [--top-k 5] [--tag TEXT]... [--topic TEXT] [--data-dir data] [--config config.yaml]
+docker compose run --rm cli search "<запрос>" [--top-k 5] [--tag TEXT]... [--topic TEXT]
 ```
 
-Возвращает топ-K фрагментов по cosine similarity. Поиск по смыслу, а не по ключевым словам.
+Возвращает топ-K фрагментов по cosine similarity (HNSW-индекс pgvector). Поиск по смыслу, а не по ключевым словам.
 
 - `--tag` — искать только в документах с этим тегом (можно несколько, AND-логика)
 - `--topic` — искать только в документах с этой темой (без учёта регистра)
 - Если фильтр не совпал ни с одним документом — возвращает пустой список (не fallback)
 
 ```bash
-docling-rag search "как работает партиционирование"
-docling-rag search "ETL pipeline best practices" --top-k 10
-docling-rag search "hub and satellite" --topic "data engineering"
-docling-rag search "layered architecture" --tag arch --tag ddd
+docker compose run --rm cli search "как работает партиционирование"
+docker compose run --rm cli search "ETL pipeline best practices" --top-k 10
+docker compose run --rm cli search "hub and satellite" --topic "data engineering"
+docker compose run --rm cli search "layered architecture" --tag arch --tag ddd
 ```
 
 **Пример вывода:**
@@ -146,7 +131,7 @@ docling-rag search "layered architecture" --tag arch --tag ddd
 ### `list` — список проиндексированных документов
 
 ```bash
-docling-rag list [--data-dir data] [--config config.yaml]
+docker compose run --rm cli list
 ```
 
 ```
@@ -159,28 +144,36 @@ docling-rag list [--data-dir data] [--config config.yaml]
 
 ---
 
-### `ask` — задать вопрос агенту *(требует агентский режим)*
+### `delete` — удалить документ из индекса
 
 ```bash
-docling-rag ask "<вопрос>" [--top-k 5] [--data-dir data] [--config config.yaml]
+docker compose run --rm cli delete <путь-источника>
+```
+
+Удаляет документ и все его chunks (каскадом). Ключ — путь-источник, как его показывает
+`list`. Несуществующий документ → понятная ошибка и exit 1.
+
+```bash
+docker compose run --rm cli delete /books/architecture.pdf
+```
+
+---
+
+### `ask` — задать вопрос агенту *(требует LM Studio)*
+
+```bash
+docker compose run --rm cli ask "<вопрос>" [--top-k 5]
 ```
 
 Агент сам вызывает семантический поиск по индексу, а затем синтезирует ответ через локальный LLM. 100% оффлайн.
 
 **Требования:**
-1. Установить зависимость агента: `uv pip install -e ".[agent]"`
-2. Запустить [LM Studio](https://lmstudio.ai) и загрузить любую модель
-3. Включить агент в `config.yaml`:
-
-```yaml
-agent_enabled: true
-llm_model: "your-model-name"   # имя модели как оно отображается в LM Studio
-llm_base_url: "http://127.0.0.1:1234/v1"
-```
+1. Запустить [LM Studio](https://lmstudio.ai) на хосте (порт 1234) и загрузить любую модель
+2. В контейнерном конфиге агент уже включён (`agent_enabled: true`, LLM через `host.docker.internal:1234`)
 
 ```bash
-docling-rag ask "Что такое Data Vault и чем он отличается от Star Schema?"
-docling-rag ask "Объясни принцип dependency inversion" --tag arch --top-k 10
+docker compose run --rm cli ask "Что такое Data Vault и чем он отличается от Star Schema?"
+docker compose run --rm cli ask "Объясни принцип dependency inversion" --tag arch --top-k 10
 ```
 
 **Пример вывода:**
@@ -198,15 +191,16 @@ Data Vault фокусируется на аудируемости и истор�
 
 ## Конфигурация
 
-По умолчанию читается `config.yaml` из текущей директории:
+По умолчанию читается `config.yaml` из текущей директории (в контейнере запечён `/app/config.yaml`):
 
 ```yaml
-embedding_model: all-MiniLM-L6-v2   # модель для эмбеддингов
+embedding_model: deepvk/USER-bge-m3  # имя с org — как есть; без org — префикс sentence-transformers/
+chunk_max_tokens: 512                # токен-лимит чанка (у bge-m3 окно 8192 — авто-лимит слишком крупный)
 top_k_results: 5                     # результатов по умолчанию
-data_dir: data                       # папка хранилища
+database_url: postgresql://docling:docling@127.0.0.1:5432/docling_rag  # env DATABASE_URL приоритетнее
 log_file: logs/search.log            # лог поисковых запросов
 
-# Агентский режим (требует uv pip install -e ".[agent]")
+# Агентский режим (на хосте требует uv pip install -e ".[agent]")
 # agent_enabled: false
 # llm_base_url: "http://127.0.0.1:1234/v1"
 # llm_api_key: "lm-studio"
@@ -214,9 +208,8 @@ log_file: logs/search.log            # лог поисковых запросо�
 # agent_top_k: 5
 ```
 
-> Размер chunks управляется автоматически — `HybridChunker` использует токен-лимит embedding-модели (256 токенов для `all-MiniLM-L6-v2`).
-
-> **Важно:** нельзя менять `embedding_model` после индексации — требуется полная переиндексация.
+> **Важно:** нельзя менять `embedding_model` после индексации — размерность вектора зашита
+> в схему БД (`vector(1024)` под USER-bge-m3), требуется полная переиндексация.
 
 ---
 
@@ -233,9 +226,9 @@ log_file: logs/search.log            # лог поисковых запросо�
 ## Архитектура
 
 ```
-Файл → Parser (Docling) → DoclingDocument → HybridChunker → Chunks → Embedder → FileStorage
+Файл → Parser (Docling) → DoclingDocument → HybridChunker → Chunks → Embedder → DBStorage (pgvector)
                                                                                       ↓
-Запрос → Embedder ───────────────────── [DocRegistry filter] ──── cosine search → Результаты
+Запрос → Embedder ───────────────────── [DBRegistry filter] ─── HNSW cosine search → Результаты
                                                                                       ↓
 ask → pydantic-ai Agent → search tool ──────────────────────────────────────── LLM ответ
 ```
@@ -246,8 +239,8 @@ ask → pydantic-ai Agent → search tool ────────────�
 docling-rag/
 ├── src/docling_rag/
 │   ├── cli/
-│   │   ├── commands.py      # Click: init, add, search, list, ask
-│   │   └── config_loader.py # Загрузка config.yaml + дефолты
+│   │   ├── commands.py      # Click: init, add, search, list, delete, ask
+│   │   └── config_loader.py # Загрузка config.yaml + дефолты + DATABASE_URL-приоритет
 │   ├── core/
 │   │   ├── parser.py     # Docling: PDF/DOCX/MD → DoclingDocument
 │   │   ├── chunker.py    # HybridChunker: structure-aware, headings, token-limit
@@ -256,25 +249,23 @@ docling-rag/
 │   │   ├── search.py     # run_search() — общая логика для search и agent tool
 │   │   ├── agent.py      # pydantic-ai Agent с search tool (требует .[agent])
 │   │   ├── protocols.py  # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
-│   │   └── errors.py     # StorageError, UnsupportedFormatError, LLMUnavailableError
+│   │   └── errors.py     # Доменные ошибки (storage/format/LLM)
 │   └── storage/
-│       ├── file_storage.py  # NumPy (.npy) + JSON хранилище chunks
-│       └── doc_registry.py  # Реестр документов: title, topic, tags → doc_index.json
+│       ├── db_schema.py   # DDL: pgvector extension, documents, chunks, HNSW-индекс
+│       ├── db_storage.py  # Chunks + эмбеддинги в postgres (psycopg3 + pgvector)
+│       └── db_registry.py # Реестр документов: title, topic, tags (таблица documents)
 ├── .claude/
 │   └── skills/
 │       └── docling-rag-manager/  # Claude Code skill для управления приложением
-├── data/                   # всё содержимое в .gitignore
-│   ├── embeddings.npy      # Матрица эмбеддингов (N × 384)
-│   ├── metadata.json       # Метаданные chunks (включая headings)
-│   └── doc_index.json      # Реестр документов (title, topic, tags, added_at)
-├── tests/                  # 108 fast-тестов + 3 integration + 1 slow
+├── tests/                  # 100 fast + 21 integration + 1 slow
+├── compose.yaml             # postgres + api + api-dev + cli
 ├── config.yaml
 └── pyproject.toml
 ```
 
 **HybridChunker** разбивает документ по структуре (heading → секция), сохраняет путь заголовков в каждом chunk'е (`[Chapter 1 > Section 1.2]`). Для эмбеддингов используется `context_text` (headings + text), для отображения — чистый `text`.
 
-**Protocol-абстракции** `core/protocols.py` позволяют заменить NumPy-файлы на pgvector без изменения CLI-кода.
+**Protocol-абстракции** `core/protocols.py`: CLI и core не знают о psycopg — `DBStorage`/`DBRegistry` подключаются через `StorageBackend`/`DocumentRegistryBackend`, юнит-тесты используют in-memory fakes.
 
 ---
 
@@ -286,7 +277,7 @@ docling-rag/
 
 ---
 
-## Разработка
+## Разработка (установка на хост — только для тестов)
 
 ```bash
 # Установка с dev-зависимостями
@@ -295,11 +286,12 @@ uv pip install -e ".[dev]"
 # Установка с поддержкой агента
 uv pip install -e ".[agent,dev]"
 
-# Быстрые тесты (108 fast)
+# Быстрые тесты (100 fast, герметичные — postgres не нужен)
 pytest tests/ -m "not integration and not slow"
 
-# Интеграционные тесты (реальный Docling + модель, ~30 сек)
-pytest tests/test_integration.py -v -m integration -s
+# Интеграционные тесты (нужен postgres: docker compose up -d postgres;
+# первый прогон скачает deepvk/USER-bge-m3 ~2.3 ГБ)
+pytest tests/ -m integration
 
 # Agent integration тест
 pytest tests/test_agent_integration.py -v -m integration -s
@@ -308,6 +300,12 @@ pytest tests/test_agent_integration.py -v -m integration -s
 ---
 
 ## Changelog
+
+### v0.2.0
+- **PostgreSQL + pgvector вместо файлового хранилища** — `DBStorage`/`DBRegistry` на psycopg3, две таблицы + HNSW-индекс, каскадное удаление; `FileStorage`/`DocRegistry` и флаг `--data-dir` удалены; CLI стал docker-only
+- **Embedding-модель `deepvk/USER-bge-m3`** (1024d, ~2.3 ГБ) вместо `all-MiniLM-L6-v2`; новый ключ `chunk_max_tokens: 512`
+- **`delete` команда** — удаление документа и его chunks по пути-источнику
+- **`database_url` в конфиге + приоритет env `DATABASE_URL`**; понятные ошибки при недоступном postgres и неинициализированной схеме
 
 ### v0.1.2
 - **`ask` команда** — новый режим: задать вопрос и получить синтезированный ответ через локальный LLM (LM Studio). Агент сам вызывает семантический поиск и отвечает на языке вопроса. 100% оффлайн.
