@@ -4,9 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.indexer import index_files, IndexReport
-from docling_rag.storage.file_storage import FileStorage
-from docling_rag.storage.doc_registry import DocRegistry
 from docling_rag.core.chunker import Chunk
+from tests.fakes import InMemoryRegistry, InMemoryStorage
 
 
 def _chunk(source: str) -> Chunk:
@@ -16,7 +15,7 @@ def _chunk(source: str) -> Chunk:
 
 def test_index_files_happy_path(tmp_path):
     f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
-    storage, registry = FileStorage(data_dir=tmp_path), DocRegistry(data_dir=tmp_path)
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
     parser, embedder = MagicMock(), MagicMock()
     embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
     with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
@@ -30,7 +29,7 @@ def test_index_files_happy_path(tmp_path):
 
 def test_index_files_reindex_is_idempotent(tmp_path):
     f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
-    storage, registry = FileStorage(data_dir=tmp_path), DocRegistry(data_dir=tmp_path)
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
     parser, embedder = MagicMock(), MagicMock()
     embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
     with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
@@ -44,7 +43,7 @@ def test_index_files_passes_chunk_max_tokens_to_chunk_document(tmp_path):
     """chunk_max_tokens must reach chunk_document as max_tokens (non-default 384:
     matching defaults of 512 on both sides would mask a dropped kwarg)."""
     f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
-    storage, registry = FileStorage(data_dir=tmp_path), DocRegistry(data_dir=tmp_path)
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
     parser, embedder = MagicMock(), MagicMock()
     embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
     with patch("docling_rag.core.indexer.chunk_document",
@@ -62,7 +61,7 @@ def test_index_files_passes_chunk_max_tokens_to_chunk_document(tmp_path):
 def test_index_files_continues_after_failure(tmp_path):
     good, bad = tmp_path / "g.md", tmp_path / "b.md"
     good.write_text("g"); bad.write_text("b")
-    storage, registry = FileStorage(data_dir=tmp_path), DocRegistry(data_dir=tmp_path)
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
     parser, embedder = MagicMock(), MagicMock()
     parser.parse.side_effect = [ValueError("boom"), MagicMock()]
     embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)

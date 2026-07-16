@@ -273,7 +273,7 @@ def test_search_does_not_crash_when_log_raises_oserror(runner):
     assert "Предупреждение" in result.output or "не удалось записать лог" in result.output
 
 
-def test_add_command_calls_doc_registry_upsert(runner, tmp_path):
+def test_add_command_calls_registry_upsert(runner, tmp_path):
     """add with --title/--topic/--tag calls DBRegistry.upsert with correct args."""
     test_doc = tmp_path / "book.md"
     test_doc.write_text("# Book\n\nContent here.\n")

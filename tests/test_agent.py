@@ -7,8 +7,7 @@ from pydantic_ai.models.test import TestModel
 
 from docling_rag.core.agent import AgentDeps, create_agent, build_lmstudio_model
 from docling_rag.core.chunker import Chunk
-from docling_rag.storage.doc_registry import DocRegistry
-from docling_rag.storage.file_storage import FileStorage
+from tests.fakes import InMemoryRegistry, InMemoryStorage
 
 
 class FakeEmbedder:
@@ -16,9 +15,9 @@ class FakeEmbedder:
         return np.ones((len(texts), 4), dtype=np.float32) / 2.0
 
 
-def _seeded_deps(tmp_path) -> AgentDeps:
-    storage = FileStorage(data_dir=tmp_path)
-    registry = DocRegistry(data_dir=tmp_path)
+def _seeded_deps() -> AgentDeps:
+    storage = InMemoryStorage()
+    registry = InMemoryRegistry()
     chunk = Chunk(text="Data Vault uses hubs and satellites.", source_file="dv.pdf",
                   chunk_id=0, page_number=42, element_type="text",
                   headings=["Ch 2"], context_text="ctx")
@@ -110,10 +109,10 @@ def test_system_prompt_contains_tool_info():
     assert "query: str" in SYSTEM_PROMPT
 
 
-def test_agent_tool_executes_real_search(tmp_path):
+def test_agent_tool_executes_real_search():
     """TestModel calls every tool once — search_documents must run against real storage."""
     agent = create_agent(TestModel())
-    result = agent.run_sync("What is Data Vault?", deps=_seeded_deps(tmp_path))
+    result = agent.run_sync("What is Data Vault?", deps=_seeded_deps())
     assert isinstance(result.output, str)
     messages = result.all_messages()
     tool_returns = [p.content for m in messages for p in m.parts
@@ -121,9 +120,9 @@ def test_agent_tool_executes_real_search(tmp_path):
     assert any("dv.pdf" in str(c) and "p.42" in str(c) for c in tool_returns)
 
 
-def test_dynamic_instructions_list_documents(tmp_path):
+def test_dynamic_instructions_list_documents():
     agent = create_agent(TestModel())
-    result = agent.run_sync("hi", deps=_seeded_deps(tmp_path))
+    result = agent.run_sync("hi", deps=_seeded_deps())
     req = result.all_messages()[0]
     instructions = getattr(req, "instructions", "") or ""
     assert "DV Book" in instructions

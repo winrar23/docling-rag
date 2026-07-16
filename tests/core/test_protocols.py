@@ -1,15 +1,18 @@
 from docling_rag.core.protocols import StorageBackend, DocumentRegistryBackend
-from docling_rag.storage.file_storage import FileStorage
-from docling_rag.storage.doc_registry import DocRegistry
+from docling_rag.storage.db_registry import DBRegistry
+from docling_rag.storage.db_storage import DBStorage
+
+# Конструирование с фиктивным dsn НЕ подключается к БД — соединение открывается на операцию.
+_FAKE_DSN = "postgresql://test:test@127.0.0.1:1/test"
 
 
-def test_file_storage_conforms(tmp_path):
-    s: StorageBackend = FileStorage(data_dir=tmp_path)  # статическая + структурная проверка
+def test_db_storage_conforms():
+    s: StorageBackend = DBStorage(_FAKE_DSN)  # статическая + структурная проверка
     assert s is not None
 
 
-def test_doc_registry_conforms(tmp_path):
-    r: DocumentRegistryBackend = DocRegistry(data_dir=tmp_path)
+def test_db_registry_conforms():
+    r: DocumentRegistryBackend = DBRegistry(_FAKE_DSN)
     assert r is not None
 
 

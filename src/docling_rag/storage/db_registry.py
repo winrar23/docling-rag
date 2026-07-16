@@ -24,7 +24,7 @@ class DBRegistry:
         topic: str | None,
         tags: list[str],
     ) -> None:
-        # Семантика DocRegistry (MVP): added_at сохраняется, None/пустые значения не затирают существующие
+        # Контракт upsert: added_at сохраняется, None/пустые значения не затирают существующие
         with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             conn.execute(
                 """

@@ -16,7 +16,7 @@ def _chunk_to_meta(chunk: Chunk) -> dict:
 
 
 class InMemoryStorage:
-    """Семантика DBStorage/FileStorage: пустое хранилище -> FileNotFoundError."""
+    """Семантика DBStorage: пустое хранилище -> FileNotFoundError."""
 
     def __init__(self) -> None:
         self._emb: np.ndarray | None = None
