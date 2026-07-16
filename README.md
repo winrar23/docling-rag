@@ -191,22 +191,23 @@ Data Vault фокусируется на аудируемости и истор�
 
 ## Конфигурация
 
-По умолчанию читается `config.yaml` из текущей директории (в контейнере запечён `/app/config.yaml`):
+Дефолты живут в коде (`src/docling_rag/cli/config_loader.py`) — отдельный `config.yaml` в репозитории не нужен и не хранится. В контейнере запечён `/app/config.yaml` (`docker/config.container.yaml`) с настройками под docker-сеть. Чтобы переопределить дефолты на хосте, создайте свой `config.yaml` в рабочей директории или укажите путь через `--config PATH`:
 
 ```yaml
 embedding_model: deepvk/USER-bge-m3  # имя с org — как есть; без org — префикс sentence-transformers/
 chunk_max_tokens: 512                # токен-лимит чанка (у bge-m3 окно 8192 — авто-лимит слишком крупный)
 top_k_results: 5                     # результатов по умолчанию
 database_url: postgresql://docling:docling@127.0.0.1:5432/docling_rag  # env DATABASE_URL приоритетнее
-log_file: logs/search.log            # лог поисковых запросов
 
-# Агентский режим (на хосте требует uv pip install -e ".[agent]")
-# agent_enabled: false
-# llm_base_url: "http://127.0.0.1:1234/v1"
-# llm_api_key: "lm-studio"
-# llm_model: "local-model"
-# agent_top_k: 5
+# Агентский режим
+agent_enabled: true
+llm_base_url: "http://127.0.0.1:1234/v1"
+llm_api_key: "lm-studio"
+llm_model: "local-model"
+agent_top_k: 5
 ```
+
+Значения из файла перекрывают дефолты; env `DATABASE_URL` перекрывает и файл, и дефолт (в compose он уже выставлен). Лог поисковых запросов пишется в таблицу `searches` в БД, а не в файл.
 
 > **Важно:** нельзя менять `embedding_model` после индексации — размерность вектора зашита
 > в схему БД (`vector(1024)` под USER-bge-m3), требуется полная переиндексация.
@@ -240,7 +241,7 @@ docling-rag/
 ├── src/docling_rag/
 │   ├── cli/
 │   │   ├── commands.py      # Click: init, add, search, list, delete, ask
-│   │   └── config_loader.py # Загрузка config.yaml + дефолты + DATABASE_URL-приоритет
+│   │   └── config_loader.py # Дефолты в коде + опциональный config.yaml + DATABASE_URL-приоритет
 │   ├── core/
 │   │   ├── parser.py     # Docling: PDF/DOCX/MD → DoclingDocument
 │   │   ├── chunker.py    # HybridChunker: structure-aware, headings, token-limit
@@ -248,24 +249,24 @@ docling-rag/
 │   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store
 │   │   ├── search.py     # run_search() — общая логика для search и agent tool
 │   │   ├── agent.py      # pydantic-ai Agent с search tool (требует .[agent])
-│   │   ├── protocols.py  # Protocol-абстракции: StorageBackend, DocumentRegistryBackend
+│   │   ├── protocols.py  # Protocol-абстракции: StorageBackend, DocumentRegistryBackend, SearchLogBackend
 │   │   └── errors.py     # Доменные ошибки (storage/format/LLM)
 │   └── storage/
-│       ├── db_schema.py   # DDL: pgvector extension, documents, chunks, HNSW-индекс
-│       ├── db_storage.py  # Chunks + эмбеддинги в postgres (psycopg3 + pgvector)
-│       └── db_registry.py # Реестр документов: title, topic, tags (таблица documents)
+│       ├── db_schema.py     # DDL: pgvector extension, documents, chunks, searches, HNSW-индекс
+│       ├── db_storage.py    # Chunks + эмбеддинги в postgres (psycopg3 + pgvector)
+│       ├── db_registry.py   # Реестр документов: title, topic, tags (таблица documents)
+│       └── db_search_log.py # Лог поисковых запросов (таблица searches)
 ├── .claude/
 │   └── skills/
 │       └── docling-rag-manager/  # Claude Code skill для управления приложением
-├── tests/                  # 100 fast + 21 integration + 1 slow
-├── compose.yaml             # postgres + api + api-dev + cli
-├── config.yaml
+├── tests/                  # 103 fast + 23 integration + 1 slow
+├── compose.yaml            # postgres + api + api-dev + cli
 └── pyproject.toml
 ```
 
 **HybridChunker** разбивает документ по структуре (heading → секция), сохраняет путь заголовков в каждом chunk'е (`[Chapter 1 > Section 1.2]`). Для эмбеддингов используется `context_text` (headings + text), для отображения — чистый `text`.
 
-**Protocol-абстракции** `core/protocols.py`: CLI и core не знают о psycopg — `DBStorage`/`DBRegistry` подключаются через `StorageBackend`/`DocumentRegistryBackend`, юнит-тесты используют in-memory fakes.
+**Protocol-абстракции** `core/protocols.py`: CLI и core не знают о psycopg — `DBStorage`/`DBRegistry`/`DBSearchLog` подключаются через `StorageBackend`/`DocumentRegistryBackend`/`SearchLogBackend`, юнит-тесты используют in-memory fakes.
 
 ---
 
@@ -280,13 +281,16 @@ docling-rag/
 ## Разработка (установка на хост — только для тестов)
 
 ```bash
+# Создать venv (если ещё не создан)
+uv venv && source .venv/bin/activate
+
 # Установка с dev-зависимостями
 uv pip install -e ".[dev]"
 
 # Установка с поддержкой агента
 uv pip install -e ".[agent,dev]"
 
-# Быстрые тесты (100 fast, герметичные — postgres не нужен)
+# Быстрые тесты (103 fast, герметичные — postgres не нужен)
 pytest tests/ -m "not integration and not slow"
 
 # Интеграционные тесты (нужен postgres: docker compose up -d postgres;
@@ -306,6 +310,8 @@ pytest tests/test_agent_integration.py -v -m integration -s
 - **Embedding-модель `deepvk/USER-bge-m3`** (1024d, ~2.3 ГБ) вместо `all-MiniLM-L6-v2`; новый ключ `chunk_max_tokens: 512`
 - **`delete` команда** — удаление документа и его chunks по пути-источнику
 - **`database_url` в конфиге + приоритет env `DATABASE_URL`**; понятные ошибки при недоступном postgres и неинициализированной схеме
+- **Лог поиска — в таблицу `searches`** вместо файла (в docker файловый лог умирал с контейнером)
+- **Уборка:** корневой `config.yaml` удалён (дефолты в коде), мёртвый `StorageBackend.save()` убран
 
 ### v0.1.2
 - **`ask` команда** — новый режим: задать вопрос и получить синтезированный ответ через локальный LLM (LM Studio). Агент сам вызывает семантический поиск и отвечает на языке вопроса. 100% оффлайн.

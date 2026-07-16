@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, CLI стал docker-only; `FileStorage`/`DocRegistry` и флаг `--data-dir` удалены. 100 unit/fast + 21 integration + 1 slow тест, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. 103 unit/fast + 23 integration + 1 slow тест, все зелёные.
 
 ## Stack
 
@@ -55,16 +55,16 @@ docling-rag/
 │   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store, per-file error isolation
 │   │   ├── search.py     # run_search() + resolve_allowed_sources() — переиспользуются CLI search и agent tool
 │   │   ├── agent.py      # create_agent(model) + build_lmstudio_model(...); требует .[agent]
-│   │   ├── protocols.py  # StorageBackend (+count_by_source) + DocumentRegistryBackend Protocol — в аннотациях (search.py, indexer.py)
+│   │   ├── protocols.py  # StorageBackend (+count_by_source) + DocumentRegistryBackend + SearchLogBackend Protocol — в аннотациях (search.py, indexer.py, commands.py)
 │   │   └── errors.py     # StorageError, StorageUnavailableError, StorageSchemaMissingError, UnsupportedFormatError, LLMUnavailableError
 │   ├── api/
 │   │   └── app.py        # FastAPI health-заглушка (GET /health); требует .[api]; REST каталога/чата — этап 4
 │   └── storage/
-│       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents + chunks + HNSW-индекс; init_schema(dsn)
+│       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents + chunks + searches + HNSW-индекс; init_schema(dsn)
 │       ├── db_storage.py    # chunks+embeddings в pg (StorageBackend impl); _translate_db_errors psycopg→доменные
-│       └── db_registry.py   # documents: title/topic/tags/added_at (DocumentRegistryBackend impl)
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 100 fast + 21 integration + 1 slow
-├── config.yaml              # embedding_model, chunk_max_tokens, top_k_results, database_url, log_file
+│       ├── db_registry.py   # documents: title/topic/tags/added_at (DocumentRegistryBackend impl)
+│       └── db_search_log.py # searches: query/top_score/searched_at (SearchLogBackend impl)
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 103 fast + 23 integration + 1 slow
 ├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/test/cli
 ├── compose.yaml             # postgres + api + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
 ├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
@@ -73,7 +73,9 @@ docling-rag/
     └── config.container.yaml  # запекается в /app/config.yaml: database_url на хост `postgres`, LLM через host.docker.internal:1234
 ```
 
-Схема БД (`db_schema.py`): `documents(source_file PK, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`).
+Дефолты конфига живут в коде (`cli/config_loader.py::_DEFAULTS`) — репозиторного `config.yaml` НЕТ (удалён: был побайтовым дублем дефолтов и молча их перекрывал). Свой `config.yaml` в cwd или `--config PATH` опциональны.
+
+Схема БД (`db_schema.py`): `documents(source_file PK, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа).
 
 ## Gotchas
 
@@ -82,7 +84,9 @@ docling-rag/
 - **postgres — ЕДИНСТВЕННОЕ хранилище** (с pgvector-миграции этапа 2). Файлового бэкенда нет: `FileStorage`/`DocRegistry`, `data_dir`, `--data-dir`, `/data`-маунты удалены. Индекс живёт в `PGDATA_DIR`
 - **DSN: env `DATABASE_URL` > ключ `database_url` в config.yaml** — приоритет реализован в `config_loader.load_config()` (env применяется ПОСЛЕ `cfg.update(user_cfg)`). Дефолт ключа — `postgresql://docling:docling@127.0.0.1:5432/docling_rag`; в compose всем сервисам (api/api-dev/cli) выставлен `DATABASE_URL` на хост `postgres`. `database_url` в `docker/config.container.yaml` — понятный фолбэк для `docker run` без compose
 - **`vector(1024)` — литерал в DDL, привязан к USER-bge-m3** — смена embedding-модели требует правки DDL И полной переиндексации (не только «переиндексации», как было с NumPy)
-- **`init` = DDL, а не создание папки** — `init_schema(dsn)` идемпотентен (`CREATE EXTENSION/TABLE/INDEX IF NOT EXISTS`), печатает `Схема БД инициализирована: <DSN с замаскированным паролем>`; `_mask_dsn()` прячет пароль во ВСЕХ сообщениях
+- **`init` = только DDL** — `init_schema(dsn)` идемпотентен (`CREATE EXTENSION/TABLE/INDEX IF NOT EXISTS`), печатает `Схема БД инициализирована: <DSN с замаскированным паролем>`; `_mask_dsn()` прячет пароль во ВСЕХ сообщениях. Папок больше не создаёт (файлового лога нет)
+- **Лог поиска — таблица `searches`, НЕ файл** — `DBSearchLog.log(query, top_score)` пишется в БД на каждом успешном `search` (при пустом результате не пишется — `top_score` берётся из `results[0]`). Отказ лога НЕ роняет поиск: `except Exception` → предупреждение в stderr. Причина замены: после удаления маунта `/data` файловый лог шёл в `/tmp` контейнера и умирал с `--rm`. Ключ `log_file` и функция `_log_search` удалены
+- **`config.yaml` в репозитории НЕТ** — дефолты в `cli/config_loader.py::_DEFAULTS`. Файл-дубликат дефолтов удалён (молча их перекрывал, создавал второй источник правды). `load_config(required=False)` без файла тихо берёт `_DEFAULTS`; свой `config.yaml`/`--config PATH` опциональны. В образе — свой `/app/config.yaml` (`docker/config.container.yaml`)
 - **Доменные ошибки хранилища НЕ наследуют `StorageError`** (`core/errors.py`) — иначе существующие `except StorageError` («Хранилище повреждено») перехватили бы инфраструктурные сбои. `storage/db_storage.py::_translate_db_errors()` (contextmanager, используется и `DBRegistry`) переводит `psycopg.OperationalError` → `StorageUnavailableError` («PostgreSQL недоступен» + подсказка `docker compose up -d postgres`), `psycopg.errors.UndefinedTable` → `StorageSchemaMissingError` («Выполните: docling-rag init»), `ProgrammingError` с "vector" в тексте → `StorageSchemaMissingError`. Неожиданные ошибки пробрасываются как есть. **`core/` и `cli/` не импортируют psycopg** — тест-стражник `test_core_does_not_import_storage_package` остаётся зелёным
 - **Соединение открывается на операцию** (`DBStorage._connect()`), пула нет — CLI короткоживущий. Конструирование `DBStorage(dsn)`/`DBRegistry(dsn)` к БД НЕ подключается (на этом стоит `tests/core/test_protocols.py` с фиктивным DSN)
 - **`headings`: list → json-строка на запись, list на чтение** — psycopg не адаптирует list в jsonb автоматически, поэтому `json.dumps(...)` в `_insert`; из jsonb приходит уже list. Формат dict метаданных chunk'а сохранён байт-в-байт (`text`, `source_file`, `chunk_id`, `page_number`, `element_type`, `headings`)
@@ -103,12 +107,13 @@ docling-rag/
 
 ### Тесты
 
-- **Быстрый суит герметичен: postgres НЕ нужен** — юниты работают на `tests/fakes.py::InMemoryStorage`/`InMemoryRegistry` (реализуют Protocol'ы, семантика та же: пустое → `FileNotFoundError`). Проверка герметичности: `docker compose stop postgres && pytest -m "not integration and not slow"` — зелёный
-- **CLI mock-паттерн (актуальный)** — фикстура `fake_backends` (`tests/conftest.py`) патчит `docling_rag.cli.commands.DBStorage`/`.DBRegistry` на in-memory fake'и и отдаёт `(storage, registry)` для сидирования. Патчить `docling_rag.cli.commands.Parser` / `.Embedder`; `init` — патчить `docling_rag.cli.commands.init_schema`; `chunk_document` вызывается из `core/indexer.py` → патчить `docling_rag.core.indexer.chunk_document`, НЕ `cli.commands.chunk_document`. `ask` — патчить `docling_rag.cli.commands._create_and_run_agent` (сигнатура `(question, cfg, top_k) -> str`, без `data_dir`)
+- **Быстрый суит герметичен: postgres НЕ нужен** — юниты работают на `tests/fakes.py::InMemoryStorage`/`InMemoryRegistry`/`InMemorySearchLog` (реализуют Protocol'ы, семантика та же: пустое → `FileNotFoundError`). Проверка герметичности: `docker compose stop postgres && pytest -m "not integration and not slow"` — зелёный
+- **Два autouse-фикстуры герметизации** (`tests/conftest.py`): `hermetic_config` патчит `load_config`; `hermetic_search_log` патчит `docling_rag.cli.commands.DBSearchLog` на in-memory фейк — иначе КАЖДЫЙ `search`-тест открывал бы соединение к несоединяемому DSN и печатал предупреждение, маскируя реальные сбои. `e2e_config` осознанно переопределяет ОБЕ (зависит от них явно): реальная тест-БД + реальная модель + НАСТОЯЩИЙ `DBSearchLog` (иначе сквозной путь логирования в БД остался бы непокрытым — там и пряталась регрессия)
+- **CLI mock-паттерн (актуальный)** — фикстура `fake_backends` (`tests/conftest.py`) патчит `docling_rag.cli.commands.DBStorage`/`.DBRegistry` на in-memory fake'и и отдаёт `(storage, registry)` для сидирования. Патчить `docling_rag.cli.commands.Parser` / `.Embedder`; `init` — патчить `docling_rag.cli.commands.init_schema`; лог — `docling_rag.cli.commands.DBSearchLog`; `chunk_document` вызывается из `core/indexer.py` → патчить `docling_rag.core.indexer.chunk_document`, НЕ `cli.commands.chunk_document`. `ask` — патчить `docling_rag.cli.commands._create_and_run_agent` (сигнатура `(question, cfg, top_k) -> str`, без `data_dir`)
 - **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
 - **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
 - **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
-- **Счётчики** — 100 fast (22 deselected), 21 integration, 1 slow
+- **Счётчики** — 103 fast (24 deselected), 23 integration, 1 slow
 
 ### CLI-контракты
 
@@ -119,7 +124,7 @@ docling-rag/
 - **Идемпотентный `add` через резолвленные пути** — `index_files()` резолвит путь (`Path(file).resolve()`) ДО `chunk_document`/`registry.upsert`; перед `storage.append()` вызывается `storage.delete_by_source(source)`; `registry.upsert` сохраняет `added_at` и не затирает title/topic/tags значениями `None`/пустыми (в SQL — `COALESCE` + `CASE WHEN cardinality(EXCLUDED.tags) > 0`)
 - **Изоляция ошибок по файлу в `index_files()`** — путь инициализируется как `str(file)` ДО `try`, резолвится внутри `try`; падение `.resolve()` (symlink loop, permission) попадает в `report.errors`, batch не прерывается
 - **Фильтр поиска: пустой match → пустые результаты** — `--tag`/`--topic` не совпал ни с одним документом → пустой список (не fallback на все документы). `--topic` сравнивается case-insensitive
-- **core/protocols.py — Protocol-абстракция, реально используется в аннотациях** — `StorageBackend` (`save`/`append`/`load`/`delete_by_source`/`count_by_source`/`search`) и `DocumentRegistryBackend` типизируют `core/search.py` и `core/indexer.py`. Тест `test_core_does_not_import_storage_package` проверяет источниковым grep'ом `core/search.py`, `core/indexer.py`, `core/agent.py` (для agent.py — чтение исходника с диска, без импорта: тест не должен падать без `.[agent]`)
+- **core/protocols.py — Protocol-абстракция, реально используется в аннотациях** — `StorageBackend` (`append`/`load`/`delete_by_source`/`count_by_source`/`search` — `save()` удалён как мёртвый), `DocumentRegistryBackend` и `SearchLogBackend` (`log`) типизируют `core/search.py`, `core/indexer.py`, `cli/commands.py`. Тест `test_core_does_not_import_storage_package` проверяет источниковым grep'ом `core/search.py`, `core/indexer.py`, `core/agent.py` (для agent.py — чтение исходника с диска, без импорта: тест не должен падать без `.[agent]`)
 - **LLM только в `ask`** — `search` возвращает raw chunks со score, ответы не генерирует
 - **`ask` требует `.[agent]` и LM Studio** — `agent_enabled: true` (в контейнерном конфиге уже true), LM Studio на `127.0.0.1:1234` (из контейнера — `host.docker.internal:1234`)
 - **Обнаружение ошибок соединения с LLM — isinstance по цепочке cause/context, НЕ строковый матч** — `cli/commands.py::_is_connection_error(e)` идёт по `e.__cause__ or e.__context__` и проверяет `isinstance(cur, (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout))`
