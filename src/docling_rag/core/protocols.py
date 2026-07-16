@@ -37,6 +37,18 @@ class StorageBackend(Protocol):
         ...
 
 
+class SearchLogBackend(Protocol):
+    """
+    Protocol for search-query logs. Implementations:
+    - docling_rag.storage.db_search_log.DBSearchLog (PostgreSQL)
+    - tests.fakes.InMemorySearchLog (unit tests)
+    """
+
+    def log(self, query: str, top_score: float) -> None:
+        """Record a search query and the score of its best hit."""
+        ...
+
+
 class DocumentRegistryBackend(Protocol):
     """
     Protocol for document-level metadata registries. Implementations:

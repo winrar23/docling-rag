@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_hnsw
     ON chunks USING hnsw (embedding vector_cosine_ops);
+
+-- Лог поисковых запросов. Не связан с documents: запрос переживает удаление документа,
+-- по которому нашёлся, иначе статистика молча теряла бы историю при delete.
+CREATE TABLE IF NOT EXISTS searches (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    query       text NOT NULL,
+    top_score   real,
+    searched_at timestamptz NOT NULL DEFAULT now()
+);
 """
 
 

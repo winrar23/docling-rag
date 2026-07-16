@@ -18,7 +18,6 @@ def test_defaults_preserve_existing_keys(tmp_path):
     cfg = load_config(tmp_path / "nonexistent.yaml")
     assert cfg["embedding_model"] == "deepvk/USER-bge-m3"
     assert cfg["top_k_results"] == 5
-    assert cfg["log_file"] == "logs/search.log"
     assert cfg["chunk_max_tokens"] == 512
 
 

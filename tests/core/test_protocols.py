@@ -1,5 +1,6 @@
-from docling_rag.core.protocols import StorageBackend, DocumentRegistryBackend
+from docling_rag.core.protocols import DocumentRegistryBackend, SearchLogBackend, StorageBackend
 from docling_rag.storage.db_registry import DBRegistry
+from docling_rag.storage.db_search_log import DBSearchLog
 from docling_rag.storage.db_storage import DBStorage
 
 # Конструирование с фиктивным dsn НЕ подключается к БД — соединение открывается на операцию.
@@ -14,6 +15,11 @@ def test_db_storage_conforms():
 def test_db_registry_conforms():
     r: DocumentRegistryBackend = DBRegistry(_FAKE_DSN)
     assert r is not None
+
+
+def test_db_search_log_conforms():
+    log: SearchLogBackend = DBSearchLog(_FAKE_DSN)
+    assert log is not None
 
 
 def test_core_does_not_import_storage_package():

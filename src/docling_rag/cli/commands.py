@@ -1,5 +1,4 @@
 # cli/commands.py
-from datetime import datetime
 from pathlib import Path
 
 import click
@@ -9,15 +8,20 @@ from docling_rag.core.embedder import Embedder
 from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
-from docling_rag.core.protocols import StorageBackend
+from docling_rag.core.protocols import SearchLogBackend, StorageBackend
 from docling_rag.core.search import resolve_allowed_sources, run_search
 from docling_rag.storage.db_registry import DBRegistry
 from docling_rag.storage.db_schema import init_schema
+from docling_rag.storage.db_search_log import DBSearchLog
 from docling_rag.storage.db_storage import DBStorage
 
 
 def get_storage(cfg: dict) -> StorageBackend:
     return DBStorage(cfg["database_url"])
+
+
+def get_search_log(cfg: dict) -> SearchLogBackend:
+    return DBSearchLog(cfg["database_url"])
 
 
 def _load_cfg(config: str | None) -> dict:
@@ -59,7 +63,6 @@ def init(config: str | None) -> None:
         init_schema(cfg["database_url"])
     except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
-    Path(cfg["log_file"]).parent.mkdir(parents=True, exist_ok=True)
     click.echo(f"Схема БД инициализирована: {_mask_dsn(cfg['database_url'])}")
 
 
@@ -163,8 +166,9 @@ def search(
         click.echo(f"    {text_preview}...")
 
     try:
-        _log_search(cfg["log_file"], query, results[0][1])
-    except OSError as e:
+        get_search_log(cfg).log(query, results[0][1])
+    except Exception as e:
+        # Лог — побочная функция: его отказ не должен ронять уже выданный поиск
         click.echo(f"Предупреждение: не удалось записать лог: {e}", err=True)
 
 
@@ -311,10 +315,3 @@ def ask(question: str, config: str | None, top_k: int | None) -> None:
                 "Убедитесь, что LM Studio запущен."
             ) from e
         raise click.ClickException(f"Ошибка агента: {e}") from e
-
-
-def _log_search(log_file: str, query: str, top_score: float) -> None:
-    path = Path(log_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(f"{datetime.now().isoformat()} | score={top_score:.3f} | {query}\n")

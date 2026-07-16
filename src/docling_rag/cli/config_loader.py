@@ -8,7 +8,6 @@ import yaml
 _DEFAULTS = {
     "embedding_model": "deepvk/USER-bge-m3",
     "top_k_results": 5,
-    "log_file": "logs/search.log",
     "agent_enabled": False,
     "llm_base_url": "http://127.0.0.1:1234/v1",
     "llm_api_key": "lm-studio",

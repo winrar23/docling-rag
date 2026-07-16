@@ -51,6 +51,13 @@ def test_full_pipeline_on_real_md(runner, e2e_config, tmp_path):
     top_score = float(result.output.split("score=")[1].split("|")[0].strip())
     assert top_score > 0.3, f"Expected semantic relevance > 0.3, got {top_score}"
 
+    # Лог поиска реально долетел до БД (раньше писался в файл внутри контейнера и умирал с ним)
+    import psycopg
+    with psycopg.connect(e2e_config["database_url"]) as conn:
+        row = conn.execute("SELECT query, top_score FROM searches ORDER BY id DESC LIMIT 1").fetchone()
+    assert row[0] == "star schema fact table"
+    assert row[1] == pytest.approx(top_score, abs=1e-3)
+
     # Delete — документ и его chunks исчезают из индекса
     result = runner.invoke(main, ["delete", str(doc)], catch_exceptions=False)
     assert result.exit_code == 0

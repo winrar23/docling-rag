@@ -62,6 +62,16 @@ class InMemoryStorage:
         return [(meta[i], float(scores[i])) for i in top]
 
 
+class InMemorySearchLog:
+    """Хранит записи в списке: юниты не открывают соединений к БД."""
+
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, float]] = []
+
+    def log(self, query: str, top_score: float) -> None:
+        self.entries.append((query, float(top_score)))
+
+
 class InMemoryRegistry:
     def __init__(self) -> None:
         self._docs: dict[str, dict] = {}

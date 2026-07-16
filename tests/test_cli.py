@@ -244,33 +244,62 @@ def test_add_schema_missing_gives_helpful_error(runner, tmp_path, monkeypatch):
     assert "docling-rag init" in result.output
 
 
-def test_search_does_not_crash_when_log_raises_oserror(runner):
-    mock_results = [
+def _search_mock_results():
+    return [
         ({"text": "Some result text", "source_file": "doc.pdf",
           "chunk_id": 0, "page_number": 1, "element_type": "text"}, 0.85),
     ]
 
-    import builtins
-    real_open = builtins.open
 
-    def patched_open(file, *args, **kwargs):
-        if "search_log" in str(file) or str(file).endswith(".log"):
-            raise OSError("permission denied")
-        return real_open(file, *args, **kwargs)
+def test_search_does_not_crash_when_log_write_fails(runner):
+    """Отказ лога не должен ронять уже выданные результаты поиска."""
+    class BoomLog:
+        def __init__(self, dsn): pass
+        def log(self, query, top_score): raise StorageUnavailableError("connection refused")
 
     with (
         patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
-        patch("builtins.open", side_effect=patched_open),
+        patch("docling_rag.cli.commands.DBSearchLog", BoomLog),
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
-        MockStorage.return_value.search.return_value = mock_results
+        MockStorage.return_value.search.return_value = _search_mock_results()
 
         result = runner.invoke(main, ["search", "some query"])
 
     assert result.exit_code == 0
     assert "doc.pdf" in result.output
     assert "Предупреждение" in result.output or "не удалось записать лог" in result.output
+
+
+def test_search_logs_query_and_top_score(runner, hermetic_search_log):
+    """Успешный поиск пишет запрос и score лучшего попадания в лог."""
+    with (
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.DBStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.return_value = _search_mock_results()
+
+        result = runner.invoke(main, ["search", "some query"])
+
+    assert result.exit_code == 0
+    assert hermetic_search_log.entries == [("some query", 0.85)]
+
+
+def test_search_without_results_does_not_log(runner, hermetic_search_log):
+    """Логировать нечего: top_score берётся из results[0] — пустой поиск не пишет строку."""
+    with (
+        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.DBStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockStorage.return_value.search.return_value = []
+
+        result = runner.invoke(main, ["search", "some query"])
+
+    assert result.exit_code == 0
+    assert hermetic_search_log.entries == []
 
 
 def test_add_command_calls_registry_upsert(runner, tmp_path):
@@ -636,7 +665,7 @@ def _agent_cfg():
         "agent_enabled": True, "llm_base_url": "http://127.0.0.1:1234/v1",
         "llm_api_key": "lm-studio", "llm_model": "m", "agent_top_k": 5,
         "embedding_model": "all-MiniLM-L6-v2",
-        "top_k_results": 5, "log_file": "",
+        "top_k_results": 5,
     }
 
 

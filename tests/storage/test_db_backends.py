@@ -1,4 +1,4 @@
-"""Integration-тесты DBStorage/DBRegistry против реального postgres (compose).
+"""Integration-тесты DBStorage/DBRegistry/DBSearchLog против реального postgres (compose).
 
 Прекондишн: docker compose up -d postgres. Используется отдельная БД docling_rag_test.
 """
@@ -39,6 +39,7 @@ def db_url():
 def clean_db(db_url):
     with psycopg.connect(db_url) as conn:
         conn.execute("TRUNCATE documents CASCADE")
+        conn.execute("TRUNCATE searches")
         conn.commit()
     return db_url
 
@@ -207,3 +208,32 @@ class TestDomainErrorTranslation:
                 DBStorage(db_url).load()
         finally:
             init_schema(db_url)  # восстановить схему для соседних тестов (идемпотентно)
+
+
+class TestDBSearchLog:
+    """Лог поисковых запросов в БД (заменил файловый лог: в docker он умирал с контейнером)."""
+
+    def _log(self, url):
+        from docling_rag.storage.db_search_log import DBSearchLog
+        return DBSearchLog(url)
+
+    def test_log_writes_row_with_query_and_score(self, clean_db):
+        self._log(clean_db).log("что такое data vault", 0.87)
+        with psycopg.connect(clean_db) as conn:
+            row = conn.execute("SELECT query, top_score, searched_at FROM searches").fetchone()
+        assert row[0] == "что такое data vault"
+        assert row[1] == pytest.approx(0.87, abs=1e-4)
+        assert row[2] is not None  # searched_at проставляет БД (DEFAULT now())
+
+    def test_log_appends_and_preserves_order(self, clean_db):
+        log = self._log(clean_db)
+        log.log("первый", 0.5)
+        log.log("второй", 0.6)
+        with psycopg.connect(clean_db) as conn:
+            rows = conn.execute("SELECT query FROM searches ORDER BY id").fetchall()
+        assert [r[0] for r in rows] == ["первый", "второй"]
+
+    def test_log_unreachable_raises_storage_unavailable(self):
+        from docling_rag.core.errors import StorageUnavailableError
+        with pytest.raises(StorageUnavailableError):
+            self._log("postgresql://test:test@127.0.0.1:1/test").log("q", 0.1)
