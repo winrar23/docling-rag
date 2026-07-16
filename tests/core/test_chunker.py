@@ -1,4 +1,4 @@
-from docling_rag.core.chunker import Chunk
+from docling_rag.core.chunker import Chunk, _get_chunker
 
 
 def test_chunk_has_headings_field():
@@ -133,7 +133,44 @@ def test_chunker_is_cached():
     with patch("docling_rag.core.chunker.HuggingFaceTokenizer") as MockTok, \
          patch("docling_rag.core.chunker.HybridChunker") as MockHybrid:
         _get_chunker.cache_clear()
-        a = _get_chunker("model-x")
-        b = _get_chunker("model-x")
+        a = _get_chunker("model-x", 512)
+        b = _get_chunker("model-x", 512)
     assert a is b
     MockTok.from_pretrained.assert_called_once()
+
+
+class TestChunkerModelResolution:
+    # NOTE: deviation from the brief's literal test body — also patch HybridChunker.
+    # Installed docling-core's HybridChunker is a pydantic model (tokenizer: BaseTokenizer,
+    # arbitrary_types_allowed=True) with a model_validator that runs a real isinstance check.
+    # Passing an unspec'd MagicMock as tokenizer (from patching only
+    # HuggingFaceTokenizer.from_pretrained) raises pydantic_core.ValidationError instead of
+    # passing through. Patching HybridChunker too (same pattern as the pre-existing
+    # test_chunker_is_cached above) avoids the real validator while still exercising the
+    # exact assertions the brief cares about: model-id resolution and max_tokens propagation.
+    def test_org_qualified_model_name_used_as_is(self):
+        _get_chunker.cache_clear()
+        with patch("docling_rag.core.chunker.HybridChunker"), \
+             patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained") as m:
+            _get_chunker("deepvk/USER-bge-m3", 512)
+        m.assert_called_once_with("deepvk/USER-bge-m3", max_tokens=512)
+
+    def test_bare_model_name_gets_sentence_transformers_prefix(self):
+        _get_chunker.cache_clear()
+        with patch("docling_rag.core.chunker.HybridChunker"), \
+             patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained") as m:
+            _get_chunker("all-MiniLM-L6-v2", 256)
+        m.assert_called_once_with("sentence-transformers/all-MiniLM-L6-v2", max_tokens=256)
+
+    def test_cache_keyed_by_model_and_max_tokens(self):
+        # side_effect=fresh MagicMock() per call: the default mocked-class .return_value
+        # is a single fixed object regardless of call args, which would make this identity
+        # check pass trivially. A fresh instance per call means `a is c` only holds because
+        # _get_chunker's lru_cache returns a cached result (real cache-identity behavior).
+        _get_chunker.cache_clear()
+        with patch("docling_rag.core.chunker.HybridChunker", side_effect=lambda **kw: MagicMock()), \
+             patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained"):
+            a = _get_chunker("all-MiniLM-L6-v2", 256)
+            b = _get_chunker("all-MiniLM-L6-v2", 512)
+            c = _get_chunker("all-MiniLM-L6-v2", 256)
+        assert a is c and a is not b

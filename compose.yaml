@@ -23,13 +23,14 @@ services:
     command: ["api"]
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docling}:${POSTGRES_PASSWORD:-docling}@postgres:5432/${POSTGRES_DB:-docling_rag}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ${DATA_DIR:-./volumes/data}:/data
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
       - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
     healthcheck:
@@ -46,6 +47,8 @@ services:
     command: ["api", "--reload"]
     ports:
       - "127.0.0.1:${API_DEV_PORT:-8001}:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docling}:${POSTGRES_PASSWORD:-docling}@postgres:5432/${POSTGRES_DB:-docling_rag}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -53,7 +56,6 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
-      - ${DATA_DIR:-./volumes/data}:/data
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
       - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
 
@@ -62,9 +64,13 @@ services:
     profiles: ["cli"]
     build: .
     image: docling-rag:local
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docling}:${POSTGRES_PASSWORD:-docling}@postgres:5432/${POSTGRES_DB:-docling_rag}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
-      - ${DATA_DIR:-./volumes/data}:/data
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
       - ${BOOKS_DIR:-./books}:/books:ro

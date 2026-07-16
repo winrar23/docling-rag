@@ -7,8 +7,8 @@ from docling_rag.core.chunker import Chunk
 class StorageBackend(Protocol):
     """
     Protocol for storage backends. Implementations:
-    - docling_rag.storage.file_storage.FileStorage (MVP)
-    - docling_rag.storage.db_storage.DBStorage (Phase 2, pgvector)
+    - docling_rag.storage.db_storage.DBStorage (PostgreSQL + pgvector)
+    - tests.fakes.InMemoryStorage (unit tests)
     """
 
     def save(self, chunks: list[Chunk], embeddings: np.ndarray) -> None:
@@ -27,6 +27,10 @@ class StorageBackend(Protocol):
         """Delete all chunks from the given source file."""
         ...
 
+    def count_by_source(self, source_file: str) -> int:
+        """Return number of chunks stored for the given source file."""
+        ...
+
     def search(
         self,
         query_embedding: np.ndarray,
@@ -40,8 +44,8 @@ class StorageBackend(Protocol):
 class DocumentRegistryBackend(Protocol):
     """
     Protocol for document-level metadata registries. Implementations:
-    - docling_rag.storage.doc_registry.DocRegistry (MVP)
-    - docling_rag.storage.db_registry.DBRegistry (Phase 2, PostgreSQL)
+    - docling_rag.storage.db_registry.DBRegistry (PostgreSQL)
+    - tests.fakes.InMemoryRegistry (unit tests)
     """
 
     def upsert(

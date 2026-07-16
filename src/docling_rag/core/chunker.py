@@ -42,23 +42,25 @@ def _extract_page_number(doc_chunk) -> int:
 
 
 @lru_cache(maxsize=4)
-def _get_chunker(embedding_model: str) -> HybridChunker:
+def _get_chunker(embedding_model: str, max_tokens: int) -> HybridChunker:
     """
-    Get or create a cached HybridChunker for the given embedding model.
+    Get or create a cached HybridChunker for the given (model, max_tokens) pair.
 
-    HybridChunker is cached per model to avoid repeated tokenizer initialization.
-    The cache size of 4 is sufficient for typical usage (one model at a time).
+    Cached per (model, max_tokens) to avoid repeated tokenizer initialization.
+    Имя с org ("deepvk/USER-bge-m3") используется как есть; короткое имя получает
+    префикс sentence-transformers/. Явный max_tokens обязателен: у bge-m3 окно
+    8192 — авто-лимит дал бы чанки, убивающие гранулярность поиска.
     """
-    tokenizer = HuggingFaceTokenizer.from_pretrained(
-        f"sentence-transformers/{embedding_model}"
-    )
+    model_id = embedding_model if "/" in embedding_model else f"sentence-transformers/{embedding_model}"
+    tokenizer = HuggingFaceTokenizer.from_pretrained(model_id, max_tokens=max_tokens)
     return HybridChunker(tokenizer=tokenizer)
 
 
 def chunk_document(
     dl_doc: DoclingDocument,
     source_file: str,
-    embedding_model: str = "all-MiniLM-L6-v2",
+    embedding_model: str = "deepvk/USER-bge-m3",
+    max_tokens: int = 512,
 ) -> list[Chunk]:
     """
     Chunk a DoclingDocument using Docling's HybridChunker.
@@ -67,7 +69,7 @@ def chunk_document(
     HybridChunker splits by document structure, respects token limits
     of the embedding model, and merges small peer chunks.
     """
-    chunker = _get_chunker(embedding_model)
+    chunker = _get_chunker(embedding_model, max_tokens)
 
     chunks: list[Chunk] = []
     for chunk_id, doc_chunk in enumerate(chunker.chunk(dl_doc)):
