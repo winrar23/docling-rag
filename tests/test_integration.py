@@ -118,7 +118,6 @@ def test_add_with_tags_and_search_filter(runner, e2e_config, tmp_path):
     assert "architecture" in result.output.lower() or "arch" in result.output.lower()
 
 
-@pytest.mark.integration
 def test_ingestion_e2e_upload_worker_done(clean_db, tmp_path):
     """POST /documents (крохотный .md) → worker обрабатывает → job done + chunks в БД."""
     import io
