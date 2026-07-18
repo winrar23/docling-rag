@@ -87,3 +87,15 @@ def test_list_returns_newest_first_and_respects_limit():
         jobs.create(f"/uploads/{i}.pdf", f"{i}.pdf", None, None, [])
     got = jobs.list(limit=2)
     assert len(got) == 2
+
+
+def test_update_progress_preserves_counters_when_none():
+    """Шаг STORING шлёт (None, None) — счётчики embed'а не должны обнуляться."""
+    jobs = InMemoryJobs()
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jobs.claim_next()
+    jobs.update_progress(jid, "embedding", chunks_done=5, chunks_total=5)
+    jobs.update_progress(jid, "storing")  # (None, None)
+    j = jobs.get(jid)
+    assert j["step"] == "storing"
+    assert j["chunks_done"] == 5 and j["chunks_total"] == 5  # сохранены, не обнулены

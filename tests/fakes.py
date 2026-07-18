@@ -145,8 +145,12 @@ class InMemoryJobs:
 
     def update_progress(self, job_id, step, chunks_done=None, chunks_total=None):
         r = self._rows[job_id]
-        r.update(step=step, chunks_done=chunks_done, chunks_total=chunks_total,
-                 updated_at=self._now())
+        r["step"] = step
+        if chunks_done is not None:  # шаги без счётчиков не обнуляют прогресс embed'а
+            r["chunks_done"] = chunks_done
+        if chunks_total is not None:
+            r["chunks_total"] = chunks_total
+        r["updated_at"] = self._now()
 
     def heartbeat(self, job_id):
         self._rows[job_id]["updated_at"] = self._now()

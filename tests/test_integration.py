@@ -156,6 +156,7 @@ def test_ingestion_e2e_upload_worker_done(clean_db, tmp_path):
         final = jobs.get(job_id)
         assert final["status"] == "done", final.get("error")
         assert final["chunks_done"] >= 1
+        assert final["chunks_total"] == final["chunks_done"]  # done показывает chunks_total, не null
         assert DBStorage(dsn).count_by_source(str((tmp_path / "mini.md").resolve())) >= 1
     finally:
         app.dependency_overrides.clear()

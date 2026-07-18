@@ -84,9 +84,13 @@ class DBJobs:
         return _normalize(row)
 
     def update_progress(self, job_id, step, chunks_done=None, chunks_total=None):
+        # COALESCE: шаги без счётчиков (parsing/chunking/storing шлют None) не обнуляют
+        # прогресс, выставленный на embedding — иначе done показывал бы chunks_total=null.
         with _translate_db_errors(), self._connect() as conn:
             conn.execute(
-                "UPDATE jobs SET step=%s, chunks_done=%s, chunks_total=%s, updated_at=now()"
+                "UPDATE jobs SET step=%s,"
+                " chunks_done=COALESCE(%s, chunks_done),"
+                " chunks_total=COALESCE(%s, chunks_total), updated_at=now()"
                 " WHERE id = %s::uuid",
                 (step, chunks_done, chunks_total, job_id),
             )
