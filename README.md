@@ -30,7 +30,7 @@ docker compose --profile dev up api-dev    # hot-reload API на :8001
 ```
 
 Все данные лежат на путях хоста из `.env` (`PGDATA_DIR`, `HF_CACHE_DIR`, `UPLOADS_DIR`,
-`BOOKS_DIR`) — расположение выбираешь сам, named volumes не используются. Индекс живёт
+`BOOKS_DIR`) — расположение выбираешь сам (подробнее — раздел «Где хранятся данные» ниже), named volumes не используются. Индекс живёт
 в postgres (`PGDATA_DIR`), файлового хранилища больше нет.
 
 > **Первый `add` скачает embedding-модель `deepvk/USER-bge-m3` (~2.3 ГБ)** в `HF_CACHE_DIR`
@@ -211,6 +211,34 @@ agent_top_k: 5
 
 > **Важно:** нельзя менять `embedding_model` после индексации — размерность вектора зашита
 > в схему БД (`vector(1024)` под USER-bge-m3), требуется полная переиндексация.
+
+### Где хранятся данные (пути в `.env`)
+
+Где лежат данные на диске — решаешь **ты**. Все пути задаются в `.env` (копия `.env.example`);
+используются только bind-mounts на хост, named volumes нет. Путь может быть **абсолютным**
+(например, внешний диск `/Volumes/SSD/docling`) или **относительным** от корня проекта
+(`./volumes/...`).
+
+| Переменная | Что хранит | Дефолт |
+|------------|-----------|--------|
+| `PGDATA_DIR` | Данные PostgreSQL — **сам векторный индекс** | `./volumes/pgdata` |
+| `HF_CACHE_DIR` | Кэш embedding-модели (~2.3 ГБ) | `./volumes/hf-cache` |
+| `UPLOADS_DIR` | Загрузки через UI (этап 4) | `./volumes/uploads` |
+| `BOOKS_DIR` | Каталог с книгами для `add` (монтируется read-only в `/books`) | `./books` |
+
+Например, сложить всё в одну папку вне проекта:
+
+```env
+PGDATA_DIR=/path/to/storage/pgdata
+HF_CACHE_DIR=/path/to/storage/hf-cache
+UPLOADS_DIR=/path/to/storage/uploads
+BOOKS_DIR=/path/to/storage/books
+```
+
+> **Важно:** выбирай пути **до первого `docker compose up`**. Как только PostgreSQL
+> инициализирует кластер в `PGDATA_DIR`, смена пути потребует физически перенести папку
+> `pgdata` (иначе БД поднимется пустой). Пути с пробелами и кириллицей поддерживаются —
+> короткий синтаксис volume в `compose.yaml` их корректно резолвит.
 
 ---
 
