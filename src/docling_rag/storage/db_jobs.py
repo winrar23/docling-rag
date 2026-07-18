@@ -115,7 +115,7 @@ class DBJobs:
                 "UPDATE jobs SET"
                 "  status = CASE WHEN attempts >= %(max)s THEN 'failed' ELSE 'queued' END,"
                 "  error = CASE WHEN attempts >= %(max)s THEN 'воркер умирал, превышен лимит попыток' ELSE error END,"
-                "  step = NULL, updated_at = now(),"
+                "  step = CASE WHEN attempts >= %(max)s THEN step ELSE NULL END, updated_at = now(),"
                 "  finished_at = CASE WHEN attempts >= %(max)s THEN now() ELSE finished_at END"
                 " WHERE status='running' AND updated_at < now() - make_interval(secs => %(stale)s)"
                 " RETURNING id",

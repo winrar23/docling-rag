@@ -74,9 +74,11 @@ def test_requeue_stale_fails_when_attempts_exhausted():
     jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
     jobs._rows[jid]["attempts"] = 3
     jobs._rows[jid]["status"] = "running"
+    jobs._rows[jid]["step"] = "embedding"
     jobs._rows[jid]["updated_at"] = datetime.now(timezone.utc) - timedelta(seconds=120)
     jobs.requeue_stale(stale_seconds=60, max_attempts=3)
     assert jobs.get(jid)["status"] == "failed"
+    assert jobs.get(jid)["step"] == "embedding"  # шаг сохранён при терминальном отказе
 
 
 def test_list_returns_newest_first_and_respects_limit():

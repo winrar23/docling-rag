@@ -61,6 +61,23 @@ def test_requeue_stale(jobs, clean_db):
     assert n == 1 and jobs.get(jid)["status"] == "queued"
 
 
+def test_requeue_stale_exhausted_attempts_preserves_step(jobs, clean_db):
+    import psycopg
+    jid = jobs.create("/uploads/s.pdf", "s.pdf", None, None, [])
+    jobs.claim_next()
+    with psycopg.connect(clean_db) as conn:  # исчерпать попытки + состарить heartbeat
+        conn.execute(
+            "UPDATE jobs SET attempts=3, step='embedding',"
+            " updated_at = now() - interval '120 seconds' WHERE id = %s::uuid",
+            (jid,),
+        )
+        conn.commit()
+    jobs.requeue_stale(stale_seconds=60, max_attempts=3)
+    job = jobs.get(jid)
+    assert job["status"] == "failed"
+    assert job["step"] == "embedding"  # шаг сохранён при терминальном отказе
+
+
 def test_get_unknown_returns_none(jobs):
     import uuid
     assert jobs.get(str(uuid.uuid4())) is None
