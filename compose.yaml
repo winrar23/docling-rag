@@ -39,6 +39,22 @@ services:
       timeout: 5s
       retries: 5
 
+  worker:
+    build: .
+    image: docling-rag:local
+    command: ["worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-docling}:${POSTGRES_PASSWORD:-docling}@postgres:5432/${POSTGRES_DB:-docling_rag}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
+      - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
+
   # dev-вариант api: hot-reload, ./src примонтирован поверх /app/src (editable install)
   api-dev:
     profiles: ["dev"]

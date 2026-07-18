@@ -55,3 +55,18 @@ def test_make_progress_writes_step_to_job():
     cb(EMBEDDING, 3, 10)
     j = jobs.get(jid)
     assert j["step"] == EMBEDDING and j["chunks_done"] == 3 and j["chunks_total"] == 10
+
+
+def test_build_deps_wires_from_config(monkeypatch):
+    import docling_rag.worker.__main__ as wmain
+
+    monkeypatch.setattr(wmain, "Parser", lambda: "PARSER")
+    monkeypatch.setattr(wmain, "Embedder", lambda model: f"EMB:{model}")
+    monkeypatch.setattr(wmain, "DBStorage", lambda dsn: f"ST:{dsn}")
+    monkeypatch.setattr(wmain, "DBRegistry", lambda dsn: f"RG:{dsn}")
+
+    deps = wmain.build_deps({
+        "database_url": "postgresql://x", "embedding_model": "m", "chunk_max_tokens": 256,
+    })
+    assert deps.embedder == "EMB:m" and deps.storage == "ST:postgresql://x"
+    assert deps.chunk_max_tokens == 256
