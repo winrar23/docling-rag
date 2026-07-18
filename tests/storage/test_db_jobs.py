@@ -85,3 +85,14 @@ def test_get_unknown_returns_none(jobs):
 
 def test_get_malformed_uuid_returns_none(jobs):
     assert jobs.get("not-a-uuid") is None
+
+
+def test_update_progress_preserves_counters_when_none(jobs):
+    """Шаг STORING шлёт (None, None) — COALESCE не обнуляет счётчики embed'а."""
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jobs.claim_next()
+    jobs.update_progress(jid, "embedding", chunks_done=5, chunks_total=5)
+    jobs.update_progress(jid, "storing")  # (None, None)
+    j = jobs.get(jid)
+    assert j["step"] == "storing"
+    assert j["chunks_done"] == 5 and j["chunks_total"] == 5
