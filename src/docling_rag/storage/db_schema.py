@@ -37,6 +37,27 @@ CREATE TABLE IF NOT EXISTS searches (
     top_score   real,
     searched_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Фоновые джобы индексации (этап 4 A). id — uuid (gen_random_uuid встроена в pg13+).
+CREATE TABLE IF NOT EXISTS jobs (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_file   text NOT NULL,
+    original_name text NOT NULL,
+    title         text,
+    topic         text,
+    tags          text[] NOT NULL DEFAULT '{}',
+    status        text NOT NULL DEFAULT 'queued',
+    step          text,
+    chunks_total  integer,
+    chunks_done   integer,
+    error         text,
+    attempts      integer NOT NULL DEFAULT 0,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    started_at    timestamptz,
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    finished_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS jobs_status_created_idx ON jobs (status, created_at);
 """
 
 
