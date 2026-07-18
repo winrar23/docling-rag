@@ -1,5 +1,6 @@
 # api/app.py — этап 4 A: приём книг (ingestion). Каталог/чат — этапы B/C.
 import os
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 
@@ -54,3 +55,26 @@ async def create_document(
 
     job_id = jobs.create(source_file, name, title, topic, tags)
     return {"job_id": job_id, "status": "queued"}
+
+
+def _with_liveness(job: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    started, updated = job.get("started_at"), job.get("updated_at")
+    job = dict(job)
+    job["elapsed_sec"] = int((now - started).total_seconds()) if started else None
+    job["heartbeat_age_sec"] = int((now - updated).total_seconds()) if updated else None
+    return job
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str, jobs: JobBackend = Depends(get_jobs)) -> dict:
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Джоба не найдена")
+    return _with_liveness(job)
+
+
+@app.get("/jobs")
+def list_jobs(limit: int = 20, status: str | None = None,
+              jobs: JobBackend = Depends(get_jobs)) -> list[dict]:
+    return [_with_liveness(j) for j in jobs.list(limit=limit, status=status)]
