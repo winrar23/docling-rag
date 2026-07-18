@@ -41,3 +41,15 @@ def test_list_jobs(client):
         jobs.create(f"/uploads/{i}.pdf", f"{i}.pdf", None, None, [])
     resp = c.get("/jobs?limit=10")
     assert resp.status_code == 200 and len(resp.json()) == 2
+
+
+def test_get_queued_job_has_null_elapsed(client):
+    c, jobs = client
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])  # queued, never claimed
+    body = c.get(f"/jobs/{jid}").json()
+    assert body["status"] == "queued" and body["elapsed_sec"] is None
+
+
+def test_list_jobs_rejects_negative_limit(client):
+    c, _ = client
+    assert c.get("/jobs?limit=-1").status_code == 422

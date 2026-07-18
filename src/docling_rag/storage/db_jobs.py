@@ -1,5 +1,7 @@
 # storage/db_jobs.py
 """Очередь фоновых джоб индексации в PostgreSQL. Реализует JobBackend (core/protocols.py)."""
+import uuid
+
 import psycopg
 from psycopg.rows import dict_row
 
@@ -37,6 +39,10 @@ class DBJobs:
         return str(row["id"])
 
     def get(self, job_id):
+        try:
+            uuid.UUID(str(job_id))
+        except (ValueError, TypeError):
+            return None  # malformed id → treat as not found (endpoint returns 404)
         with _translate_db_errors(), self._connect() as conn:
             row = conn.execute(
                 f"SELECT {_COLS} FROM jobs WHERE id = %s::uuid", (job_id,)

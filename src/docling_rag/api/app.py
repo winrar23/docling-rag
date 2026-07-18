@@ -2,7 +2,7 @@
 import os
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 
 from docling_rag.cli.config_loader import load_config
 from docling_rag.core.parser import SUPPORTED_EXTENSIONS
@@ -75,6 +75,6 @@ def get_job(job_id: str, jobs: JobBackend = Depends(get_jobs)) -> dict:
 
 
 @app.get("/jobs")
-def list_jobs(limit: int = 20, status: str | None = None,
+def list_jobs(limit: int = Query(default=20, ge=1, le=100), status: str | None = None,
               jobs: JobBackend = Depends(get_jobs)) -> list[dict]:
     return [_with_liveness(j) for j in jobs.list(limit=limit, status=status)]

@@ -81,3 +81,7 @@ def test_requeue_stale_exhausted_attempts_preserves_step(jobs, clean_db):
 def test_get_unknown_returns_none(jobs):
     import uuid
     assert jobs.get(str(uuid.uuid4())) is None
+
+
+def test_get_malformed_uuid_returns_none(jobs):
+    assert jobs.get("not-a-uuid") is None
