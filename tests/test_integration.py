@@ -116,3 +116,47 @@ def test_add_with_tags_and_search_filter(runner, e2e_config, tmp_path):
     assert result.exit_code == 0
     assert "data_engineering.md" not in result.output
     assert "architecture" in result.output.lower() or "arch" in result.output.lower()
+
+
+@pytest.mark.integration
+def test_ingestion_e2e_upload_worker_done(clean_db, tmp_path):
+    """POST /documents (крохотный .md) → worker обрабатывает → job done + chunks в БД."""
+    import io
+    from fastapi.testclient import TestClient
+
+    from docling_rag.api.app import app, get_jobs, get_settings
+    from docling_rag.core.embedder import Embedder
+    from docling_rag.core.parser import Parser
+    from docling_rag.storage.db_jobs import DBJobs
+    from docling_rag.storage.db_registry import DBRegistry
+    from docling_rag.storage.db_storage import DBStorage
+    from docling_rag.worker.runner import WorkerDeps, process_one_job
+
+    dsn = clean_db
+    jobs = DBJobs(dsn)
+    app.dependency_overrides[get_jobs] = lambda: jobs
+    app.dependency_overrides[get_settings] = lambda: {"uploads_dir": str(tmp_path), "database_url": dsn}
+    try:
+        client = TestClient(app)
+        md = b"# Replication\n\nSynchronous replication waits for the follower ack.\n"
+        resp = client.post("/documents",
+                           files={"file": ("mini.md", io.BytesIO(md), "text/markdown")},
+                           data={"title": "Mini"})
+        assert resp.status_code == 202
+        job_id = resp.json()["job_id"]
+
+        deps = WorkerDeps(
+            parser=Parser(), embedder=Embedder("deepvk/USER-bge-m3"),
+            storage=DBStorage(dsn), registry=DBRegistry(dsn),
+            embedding_model="deepvk/USER-bge-m3", chunk_max_tokens=512,
+        )
+        job = jobs.claim_next()
+        assert job["id"] == job_id
+        process_one_job(jobs, deps, job)
+
+        final = jobs.get(job_id)
+        assert final["status"] == "done", final.get("error")
+        assert final["chunks_done"] >= 1
+        assert DBStorage(dsn).count_by_source(str((tmp_path / "mini.md").resolve())) >= 1
+    finally:
+        app.dependency_overrides.clear()
