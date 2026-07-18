@@ -77,3 +77,58 @@ class DocumentRegistryBackend(Protocol):
     def load(self) -> dict[str, dict]:
         """Return full index as {source_file: {title, topic, tags, added_at}}."""
         ...
+
+
+class JobBackend(Protocol):
+    """
+    Protocol for background ingestion jobs. Implementations:
+    - docling_rag.storage.db_jobs.DBJobs (PostgreSQL, очередь через FOR UPDATE SKIP LOCKED)
+    - tests.fakes.InMemoryJobs (unit tests)
+
+    Job-dict: id, source_file, original_name, title, topic, tags, status
+    (queued|running|done|failed), step, chunks_done, chunks_total, error,
+    attempts, created_at, started_at, updated_at, finished_at.
+    """
+
+    def create(self, source_file: str, original_name: str,
+               title: str | None, topic: str | None, tags: list[str]) -> str:
+        """Insert a queued job. Return job_id."""
+        ...
+
+    def get(self, job_id: str) -> dict | None:
+        """Return job-dict or None."""
+        ...
+
+    def list(self, limit: int = 20, status: str | None = None) -> list[dict]:
+        """Recent jobs, newest first."""
+        ...
+
+    def find_active_by_source(self, source_file: str) -> dict | None:
+        """Return a queued/running job for this source, else None (dedup guard)."""
+        ...
+
+    def claim_next(self) -> dict | None:
+        """Atomically move one queued job to running; return it or None."""
+        ...
+
+    def update_progress(self, job_id: str, step: str,
+                        chunks_done: int | None = None,
+                        chunks_total: int | None = None) -> None:
+        """Set step/counters and bump heartbeat."""
+        ...
+
+    def heartbeat(self, job_id: str) -> None:
+        """Bump updated_at (liveness), no other change."""
+        ...
+
+    def complete(self, job_id: str, chunks_added: int) -> None:
+        """Mark done."""
+        ...
+
+    def fail(self, job_id: str, error: str) -> None:
+        """Mark failed with error text."""
+        ...
+
+    def requeue_stale(self, stale_seconds: int, max_attempts: int) -> int:
+        """Running jobs with stale heartbeat → queued (or failed if attempts exhausted). Return count."""
+        ...

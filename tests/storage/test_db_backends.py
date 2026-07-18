@@ -40,6 +40,7 @@ def clean_db(db_url):
     with psycopg.connect(db_url) as conn:
         conn.execute("TRUNCATE documents CASCADE")
         conn.execute("TRUNCATE searches")
+        conn.execute("TRUNCATE jobs")
         conn.commit()
     return db_url
 

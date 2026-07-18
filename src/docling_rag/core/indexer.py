@@ -1,15 +1,27 @@
-"""Indexing service: file -> parse -> chunk -> embed -> store. Used by CLI (and API in v2 stage 4)."""
+"""Indexing service: file -> parse -> chunk -> embed -> store. Used by CLI and API worker (v2 stage 4)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
+
+import numpy as np
 
 from docling_rag.core.chunker import chunk_document
 from docling_rag.core.embedder import Embedder
 from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.parser import Parser
 from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
+
+# Шаги пайплайна — значения совпадают с колонкой jobs.step.
+PARSING = "parsing"
+CHUNKING = "chunking"
+EMBEDDING = "embedding"
+STORING = "storing"
+
+ProgressCallback = Callable[[str, "int | None", "int | None"], None]
+
+_EMBED_BATCH = 128
 
 
 @dataclass
@@ -31,20 +43,34 @@ def index_files(
     title: str | None = None,
     topic: str | None = None,
     tags: Sequence[str] = (),
+    on_progress: ProgressCallback | None = None,
 ) -> IndexReport:
+    def report_progress(step: str, done: int | None = None, total: int | None = None) -> None:
+        if on_progress is not None:
+            on_progress(step, done, total)
+
     report = IndexReport()
     for file in files:
         source = str(file)
         try:
             source = str(Path(file).resolve())
+            report_progress(PARSING)
             doc = parser.parse(file)
+            report_progress(CHUNKING)
             chunks = chunk_document(
                 doc, source_file=source, embedding_model=embedding_model, max_tokens=chunk_max_tokens
             )
             if not chunks:
                 report.files_ok += 1
                 continue
-            embeddings = embedder.embed([c.context_text for c in chunks], batch_size=128)
+            total = len(chunks)
+            parts = []
+            for start in range(0, total, _EMBED_BATCH):
+                batch = [c.context_text for c in chunks[start:start + _EMBED_BATCH]]
+                parts.append(embedder.embed(batch, batch_size=_EMBED_BATCH))
+                report_progress(EMBEDDING, min(start + _EMBED_BATCH, total), total)
+            embeddings = np.vstack(parts)
+            report_progress(STORING)
             storage.delete_by_source(source)
             storage.append(chunks, embeddings)
             registry.upsert(source, title=title, topic=topic, tags=list(tags))

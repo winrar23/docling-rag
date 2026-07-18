@@ -10,6 +10,10 @@ case "$1" in
         shift
         exec pytest "$@"
         ;;
+    worker)
+        shift
+        exec python -m docling_rag.worker "$@"
+        ;;
     *)
         exec docling-rag "$@"
         ;;
