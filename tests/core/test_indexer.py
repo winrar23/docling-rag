@@ -86,3 +86,40 @@ def test_index_files_reraises_infrastructure_errors(tmp_path, infra_error):
     with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
         with pytest.raises(type(infra_error)):
             index_files([f], parser, embedder, storage, registry, "m")
+
+
+def test_index_files_reports_progress_steps(monkeypatch):
+    """on_progress получает шаги по порядку + батчи embed с done/total."""
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    import numpy as np
+
+    import docling_rag.core.indexer as indexer_mod
+    from docling_rag.core.chunker import Chunk
+    from tests.fakes import InMemoryStorage, InMemoryRegistry
+
+    fake_chunks = [
+        Chunk(text=f"t{i}", source_file="/x.pdf", chunk_id=i, page_number=1,
+              element_type="text", headings=[], context_text=f"t{i}")
+        for i in range(5)
+    ]
+    monkeypatch.setattr(indexer_mod, "chunk_document", lambda *a, **k: fake_chunks)
+
+    parser = MagicMock()
+    embedder = MagicMock()
+    embedder.embed.side_effect = lambda texts, batch_size=128: np.ones((len(texts), 1024), dtype=np.float32)
+
+    events = []
+    indexer_mod.index_files(
+        [Path("/x.pdf")], parser, embedder, InMemoryStorage(), InMemoryRegistry(),
+        embedding_model="m", chunk_max_tokens=512,
+        on_progress=lambda step, done, total: events.append((step, done, total)),
+    )
+
+    steps = [e[0] for e in events]
+    assert steps[0] == indexer_mod.PARSING
+    assert indexer_mod.CHUNKING in steps
+    assert indexer_mod.STORING == steps[-1]
+    embed_events = [e for e in events if e[0] == indexer_mod.EMBEDDING]
+    assert embed_events, "должны быть события embedding"
+    assert embed_events[-1] == (indexer_mod.EMBEDDING, 5, 5)  # последний батч: done==total==5
