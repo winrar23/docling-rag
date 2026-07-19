@@ -15,6 +15,7 @@ _HERMETIC_DEFAULTS = {
     # соединения с БД, падает быстро и громко вместо зависания/долгого таймаута.
     "database_url": "postgresql://test:test@127.0.0.1:1/test",
     "chunk_max_tokens": 512,
+    "embed_url": None,
 }
 
 
