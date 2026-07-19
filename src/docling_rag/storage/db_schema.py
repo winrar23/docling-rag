@@ -9,11 +9,17 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS documents (
     source_file text PRIMARY KEY,
+    id          uuid NOT NULL DEFAULT gen_random_uuid(),
     title       text,
     topic       text,
     tags        text[] NOT NULL DEFAULT '{}',
     added_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Суррогатный id для REST-адресации карточек (этап 4-B); source_file остаётся PK,
+-- FK chunks и корреляция jobs не меняются. Идемпотентная миграция для существующих баз.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS id uuid NOT NULL DEFAULT gen_random_uuid();
+CREATE UNIQUE INDEX IF NOT EXISTS documents_id_key ON documents (id);
 
 CREATE TABLE IF NOT EXISTS chunks (
     id           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

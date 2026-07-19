@@ -81,7 +81,11 @@ class DocumentRegistryBackend(Protocol):
         ...
 
     def load(self) -> dict[str, dict]:
-        """Return full index as {source_file: {title, topic, tags, added_at}}."""
+        """Return full index as {source_file: {id, title, topic, tags, added_at}}."""
+        ...
+
+    def get_by_id(self, doc_id: str) -> tuple[str, dict] | None:
+        """Return (source_file, entry) for a surrogate uuid, or None (malformed/unknown)."""
         ...
 
 

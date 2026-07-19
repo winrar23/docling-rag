@@ -1,4 +1,5 @@
 """In-memory реализации Protocol'ов для герметичных юнит-тестов (без postgres)."""
+import uuid
 from datetime import datetime, timezone
 
 import numpy as np
@@ -79,6 +80,7 @@ class InMemoryRegistry:
     def upsert(self, source_file, title, topic, tags) -> None:
         existing = self._docs.get(source_file, {})
         self._docs[source_file] = {
+            "id": existing.get("id", str(uuid.uuid4())),
             "title": title if title is not None else existing.get("title"),
             "topic": topic if topic is not None else existing.get("topic"),
             "tags": list(tags) if tags else existing.get("tags", []),
@@ -93,6 +95,12 @@ class InMemoryRegistry:
 
     def load(self) -> dict[str, dict]:
         return dict(self._docs)
+
+    def get_by_id(self, doc_id: str) -> tuple[str, dict] | None:
+        for source, entry in self._docs.items():
+            if entry.get("id") == doc_id:
+                return source, dict(entry)
+        return None
 
 
 class InMemoryJobs:

@@ -174,6 +174,35 @@ class TestDBRegistry:
         r.delete("/books/a.pdf")  # идемпотентно
 
 
+def test_documents_have_uuid_id_and_get_by_id(clean_db):
+    from docling_rag.storage.db_registry import DBRegistry
+    reg = DBRegistry(clean_db)
+    reg.upsert("/uploads/x.pdf", "X", None, ["t"])
+    entry = reg.get("/uploads/x.pdf")
+    assert entry["id"]
+    source, by_id = reg.get_by_id(entry["id"])
+    assert source == "/uploads/x.pdf" and by_id["title"] == "X"
+    assert reg.get_by_id("not-a-uuid") is None
+
+
+def test_init_schema_adds_id_to_legacy_documents(db_url):
+    """Миграция: база без колонки id получает её повторным init_schema (идемпотентно)."""
+    import psycopg
+    from docling_rag.storage.db_schema import init_schema
+    with psycopg.connect(db_url) as conn:
+        conn.execute("INSERT INTO documents (source_file, title) VALUES ('/legacy.pdf', 'L')"
+                     " ON CONFLICT (source_file) DO NOTHING")
+        conn.execute("DROP INDEX IF EXISTS documents_id_key")
+        conn.execute("ALTER TABLE documents DROP COLUMN IF EXISTS id")
+        conn.commit()
+    init_schema(db_url)
+    with psycopg.connect(db_url) as conn:
+        row = conn.execute("SELECT id FROM documents WHERE source_file='/legacy.pdf'").fetchone()
+        conn.execute("DELETE FROM documents WHERE source_file='/legacy.pdf'")
+        conn.commit()
+    assert row[0] is not None  # backfill сработал
+
+
 class TestDomainErrorTranslation:
     """Реальный psycopg-стек -> доменные исключения (core/errors.py)."""
 
