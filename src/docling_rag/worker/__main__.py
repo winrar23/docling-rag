@@ -1,6 +1,6 @@
 """Точка входа воркера в контейнере: docling-rag-worker (entrypoint 'worker')."""
 from docling_rag.cli.config_loader import load_config
-from docling_rag.core.embedder import Embedder
+from docling_rag.core.embedder import get_embedder
 from docling_rag.core.parser import Parser
 from docling_rag.storage.db_jobs import DBJobs
 from docling_rag.storage.db_registry import DBRegistry
@@ -12,7 +12,7 @@ def build_deps(cfg: dict) -> WorkerDeps:
     dsn = cfg["database_url"]
     return WorkerDeps(
         parser=Parser(),
-        embedder=Embedder(cfg["embedding_model"]),
+        embedder=get_embedder(cfg),
         storage=DBStorage(dsn),
         registry=DBRegistry(dsn),
         embedding_model=cfg["embedding_model"],

@@ -4,7 +4,7 @@ from pathlib import Path
 import click
 
 from docling_rag.cli.config_loader import load_config, ConfigError
-from docling_rag.core.embedder import Embedder
+from docling_rag.core.embedder import get_embedder
 from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
@@ -89,7 +89,7 @@ def add(
         raise click.ClickException("Нет поддерживаемых файлов для индексации.")
 
     parser = Parser()
-    embedder = Embedder(model_name=cfg["embedding_model"])
+    embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
     try:
@@ -135,7 +135,7 @@ def search(
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
         return
-    embedder = Embedder(model_name=cfg["embedding_model"])   # constructed AFTER the early return — lazy Embedder
+    embedder = get_embedder(cfg)   # constructed AFTER the early return — lazy embedder
 
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
@@ -264,7 +264,7 @@ def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
     create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
     agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
-    embedder = Embedder(model_name=cfg["embedding_model"])
+    embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
     deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)

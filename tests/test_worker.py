@@ -98,7 +98,7 @@ def test_build_deps_wires_from_config(monkeypatch):
     import docling_rag.worker.__main__ as wmain
 
     monkeypatch.setattr(wmain, "Parser", lambda: "PARSER")
-    monkeypatch.setattr(wmain, "Embedder", lambda model: f"EMB:{model}")
+    monkeypatch.setattr(wmain, "get_embedder", lambda cfg: f"EMB:{cfg['embedding_model']}")
     monkeypatch.setattr(wmain, "DBStorage", lambda dsn: f"ST:{dsn}")
     monkeypatch.setattr(wmain, "DBRegistry", lambda dsn: f"RG:{dsn}")
 
@@ -108,3 +108,18 @@ def test_build_deps_wires_from_config(monkeypatch):
     assert deps.parser == "PARSER" and deps.registry == "RG:postgresql://x"
     assert deps.embedder == "EMB:m" and deps.storage == "ST:postgresql://x"
     assert deps.chunk_max_tokens == 256
+
+
+def test_build_deps_uses_embed_url_config(monkeypatch):
+    """build_deps отдаёт HTTPEmbedder при embed_url (сама фабрика уже покрыта юнитами)."""
+    import docling_rag.worker.__main__ as wmain
+    from docling_rag.core.embed_client import HTTPEmbedder
+
+    monkeypatch.setattr(wmain, "Parser", lambda: "P")
+    monkeypatch.setattr(wmain, "DBStorage", lambda dsn: "S")
+    monkeypatch.setattr(wmain, "DBRegistry", lambda dsn: "R")
+    deps = wmain.build_deps({
+        "database_url": "postgresql://x", "embedding_model": "m",
+        "chunk_max_tokens": 256, "embed_url": "http://embed:8100",
+    })
+    assert isinstance(deps.embedder, HTTPEmbedder)
