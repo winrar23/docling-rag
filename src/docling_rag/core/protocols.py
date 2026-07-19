@@ -1,7 +1,13 @@
 # core/protocols.py
-from typing import Protocol
+from typing import Protocol, Sequence
 import numpy as np
 from docling_rag.core.chunker import Chunk
+
+
+class EmbedderBackend(Protocol):
+    """Эмбеддер запросов/чанков: локальная модель или HTTP-клиент embed-сервиса."""
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray: ...
 
 
 class StorageBackend(Protocol):
