@@ -29,8 +29,31 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+def _save_upload(src, dest: str, max_bytes: int) -> None:
+    """Чанковая запись в dest+'.part' с лимитом, затем атомарная замена dest.
+
+    Не держит файл в памяти целиком; при превышении лимита прежний dest не трогается.
+    """
+    part = dest + ".part"
+    try:
+        with open(part, "wb") as f:
+            written = 0
+            while chunk := src.read(1024 * 1024):
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Файл больше лимита {max_bytes // (1024 * 1024)} МБ (ключ конфига max_upload_mb)",
+                    )
+                f.write(chunk)
+        os.replace(part, dest)
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
+
+
 @app.post("/documents", status_code=202)
-async def create_document(
+def create_document(  # sync def: FastAPI уводит в threadpool — файловый и БД I/O не блокируют event loop
     file: UploadFile = File(...),
     title: str | None = Form(None),
     topic: str | None = Form(None),
@@ -54,8 +77,7 @@ async def create_document(
                             detail={"message": "Уже индексируется", "job_id": existing["id"]})
 
     os.makedirs(uploads_dir, exist_ok=True)
-    with open(source_file, "wb") as f:
-        f.write(await file.read())
+    _save_upload(file.file, source_file, int(settings["max_upload_mb"]) * 1024 * 1024)
 
     job_id = jobs.create(source_file, name, title, topic, tags)
     return {"job_id": job_id, "status": "queued"}
