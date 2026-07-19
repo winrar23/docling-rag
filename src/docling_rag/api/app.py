@@ -5,14 +5,35 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from docling_rag.cli.config_loader import load_config
+from docling_rag.core.errors import (
+    EmbedServiceUnavailableError,
+    StorageSchemaMissingError,
+    StorageUnavailableError,
+)
 from docling_rag.core.parser import SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import JobBackend
 from docling_rag.storage.db_jobs import DBJobs
 
 app = FastAPI(title="docling-rag")
+
+
+@app.exception_handler(StorageUnavailableError)
+def _storage_unavailable_503(request: Request, exc: StorageUnavailableError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": f"PostgreSQL недоступен: {exc}"})
+
+
+@app.exception_handler(StorageSchemaMissingError)
+def _schema_missing_503(request: Request, exc: StorageSchemaMissingError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": "Схема БД не инициализирована. Выполните: docling-rag init"})
+
+
+@app.exception_handler(EmbedServiceUnavailableError)
+def _embed_unavailable_503(request: Request, exc: EmbedServiceUnavailableError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": f"Сервис эмбеддингов недоступен: {exc}"})
 
 
 @lru_cache
