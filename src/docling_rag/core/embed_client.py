@@ -18,7 +18,9 @@ class HTTPEmbedder:
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout,
                                     transport=transport)
 
-    def embed(self, texts: Sequence[str]) -> np.ndarray:
+    def embed(self, texts: Sequence[str], batch_size: int = 32) -> np.ndarray:
+        # batch_size принимается для совместимости с интерфейсом локального Embedder
+        # (indexer передаёт его явно) и игнорируется: батчинг — забота embed-сервиса.
         try:
             resp = self._client.post("/embed", json={"texts": list(texts)})
             resp.raise_for_status()

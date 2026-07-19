@@ -43,3 +43,12 @@ def test_5xx_raises_domain_error():
 def test_embed_service_error_is_not_storage_error():
     from docling_rag.core.errors import StorageError
     assert not issubclass(EmbedServiceUnavailableError, StorageError)
+
+
+def test_embed_accepts_batch_size_kwarg_for_indexer_compat():
+    """indexer вызывает embed(batch, batch_size=...) для локального Embedder;
+    HTTPEmbedder должен принимать (и игнорировать) тот же kwarg."""
+    emb = HTTPEmbedder("http://embed:8100", transport=_transport_ok())
+    vecs = emb.embed(["a", "b"], batch_size=8)
+    assert isinstance(vecs, np.ndarray)
+    assert vecs.dtype == np.float32 and vecs.shape == (2, 4)

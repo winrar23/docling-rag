@@ -135,7 +135,7 @@ def search(
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
         return
-    embedder = get_embedder(cfg)   # constructed AFTER the early return — lazy embedder
+    embedder = get_embedder(cfg)   # создаётся ПОСЛЕ раннего return — ленивый эмбеддер
 
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
