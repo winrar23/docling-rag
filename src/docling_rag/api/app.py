@@ -1,5 +1,6 @@
 # api/app.py — этап 4 A: приём книг (ingestion). Каталог/чат — этапы B/C.
 import os
+import sys
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -173,3 +174,34 @@ def get_document(doc_id: str, registry: DocumentRegistryBackend = Depends(get_re
         raise HTTPException(status_code=404, detail="Документ не найден")
     source, entry = found
     return _document_card(source, entry, storage, jobs)
+
+
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str,
+                    settings: dict = Depends(get_settings),
+                    registry: DocumentRegistryBackend = Depends(get_registry),
+                    storage: StorageBackend = Depends(get_storage),
+                    jobs: JobBackend = Depends(get_jobs)) -> dict:
+    found = registry.get_by_id(doc_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    source, entry = found
+
+    active = jobs.find_active_by_source(source)
+    if active is not None:  # иначе воркер пересоздал бы документ после удаления
+        raise HTTPException(status_code=409,
+                            detail={"message": "Идёт индексация", "job_id": active["id"]})
+
+    chunks = storage.count_by_source(source)
+    registry.delete(source)          # FK-каскад сносит chunks
+    storage.delete_by_source(source)  # идемпотентная страховка (как в cli delete)
+
+    file_removed = False
+    path = Path(source)
+    if path.parent == Path(settings["uploads_dir"]).resolve() and path.exists():
+        try:
+            path.unlink()
+            file_removed = True
+        except OSError as e:  # истина — в БД; файл не критичен
+            print(f"предупреждение: файл не удалён: {e}", file=sys.stderr)
+    return {"deleted": entry["title"] or source, "chunks": chunks, "file_removed": file_removed}
