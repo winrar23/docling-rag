@@ -1,6 +1,4 @@
 """Юниты воркера на InMemoryJobs + фейковый индексатор (без postgres/моделей)."""
-from types import SimpleNamespace
-
 from docling_rag.core.indexer import IndexReport, EMBEDDING
 from docling_rag.worker.runner import WorkerDeps, process_one_job, make_progress
 from tests.fakes import InMemoryJobs
@@ -107,5 +105,6 @@ def test_build_deps_wires_from_config(monkeypatch):
     deps = wmain.build_deps({
         "database_url": "postgresql://x", "embedding_model": "m", "chunk_max_tokens": 256,
     })
+    assert deps.parser == "PARSER" and deps.registry == "RG:postgresql://x"
     assert deps.embedder == "EMB:m" and deps.storage == "ST:postgresql://x"
     assert deps.chunk_max_tokens == 256

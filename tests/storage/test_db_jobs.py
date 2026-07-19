@@ -87,6 +87,72 @@ def test_get_malformed_uuid_returns_none(jobs):
     assert jobs.get("not-a-uuid") is None
 
 
+def test_claim_next_skip_locked_concurrent(jobs, clean_db):
+    """Два конкурентных claim'а не берут одну джобу и не блокируются (FOR UPDATE SKIP LOCKED)."""
+    import threading
+    import psycopg
+
+    j1 = jobs.create("/uploads/1.pdf", "1.pdf", None, None, [])
+    j2 = jobs.create("/uploads/2.pdf", "2.pdf", None, None, [])
+    with psycopg.connect(clean_db) as conn:  # j1 старше — первый claim возьмёт именно её
+        conn.execute(
+            "UPDATE jobs SET created_at = now() - interval '10 seconds' WHERE id = %s::uuid", (j1,)
+        )
+        conn.commit()
+
+    with psycopg.connect(clean_db) as txn1:  # незакоммиченная транзакция держит лок j1
+        claimed1 = txn1.execute(
+            "UPDATE jobs SET status='running' WHERE id = ("
+            " SELECT id FROM jobs WHERE status='queued' ORDER BY created_at"
+            " FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id"
+        ).fetchone()
+        assert str(claimed1[0]) == j1
+
+        result = {}
+        t = threading.Thread(target=lambda: result.update(job=jobs.claim_next()), daemon=True)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive(), "claim_next завис на чужом локе — SKIP LOCKED не работает"
+        assert result["job"]["id"] == j2  # взял вторую джобу, а не заблокировался на первой
+        txn1.rollback()
+
+
+def test_heartbeat_advances_updated_at(jobs, clean_db):
+    import psycopg
+
+    jid = jobs.create("/uploads/h.pdf", "h.pdf", None, None, [])
+    jobs.claim_next()
+    with psycopg.connect(clean_db) as conn:  # состарить heartbeat
+        conn.execute(
+            "UPDATE jobs SET updated_at = now() - interval '300 seconds' WHERE id = %s::uuid", (jid,)
+        )
+        conn.commit()
+    before = jobs.get(jid)["updated_at"]
+    jobs.heartbeat(jid)
+    after = jobs.get(jid)["updated_at"]
+    assert (after - before).total_seconds() > 250  # updated_at сдвинут к now()
+
+
+def test_list_orders_limits_and_filters(jobs, clean_db):
+    import psycopg
+
+    j1 = jobs.create("/uploads/1.pdf", "1.pdf", None, None, [])
+    j2 = jobs.create("/uploads/2.pdf", "2.pdf", None, None, [])
+    j3 = jobs.create("/uploads/3.pdf", "3.pdf", None, None, [])
+    with psycopg.connect(clean_db) as conn:  # детерминированный порядок created_at: j1 < j2 < j3
+        for age, jid in ((30, j1), (20, j2), (10, j3)):
+            conn.execute(
+                "UPDATE jobs SET created_at = now() - make_interval(secs => %s) WHERE id = %s::uuid",
+                (age, jid),
+            )
+        conn.commit()
+
+    assert [r["id"] for r in jobs.list(limit=2)] == [j3, j2]  # новые первыми, limit режет
+    jobs.claim_next()  # j1 (старейшая queued) -> running
+    assert [r["id"] for r in jobs.list(status="queued")] == [j3, j2]
+    assert [r["id"] for r in jobs.list(status="running")] == [j1]
+
+
 def test_update_progress_preserves_counters_when_none(jobs):
     """Шаг STORING шлёт (None, None) — COALESCE не обнуляет счётчики embed'а."""
     jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
