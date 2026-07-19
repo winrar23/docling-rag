@@ -2,6 +2,7 @@
 import os
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -69,7 +70,9 @@ def create_document(  # sync def: FastAPI уводит в threadpool — фай�
             detail=f"Формат {ext or '?'} не поддерживается. Разрешено: {', '.join(sorted(SUPPORTED_EXTENSIONS))}",
         )
     uploads_dir = settings["uploads_dir"]
-    source_file = os.path.join(uploads_dir, name)
+    # resolve — тот же ключ, что indexer пишет в documents.source_file
+    # (Path.resolve() в index_files); иначе джобу не скоррелировать с документом.
+    source_file = str((Path(uploads_dir) / name).resolve())
 
     existing = jobs.find_active_by_source(source_file)
     if existing is not None:

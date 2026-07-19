@@ -73,6 +73,31 @@ def test_post_documents_dedup_returns_409_with_existing_job(client):
     assert r2.json()["detail"]["job_id"] == r1.json()["job_id"]
 
 
+def test_post_documents_stores_resolved_source_file(tmp_path):
+    """jobs.source_file должен совпадать с documents.source_file (indexer резолвит путь).
+
+    uploads_dir через symlink: без resolve в API ключи расходятся — этап B
+    не сможет скоррелировать джобу с документом.
+    """
+    real = tmp_path / "real-uploads"
+    real.mkdir()
+    link = tmp_path / "link-uploads"
+    link.symlink_to(real)
+    jobs = InMemoryJobs()
+    app.dependency_overrides[get_jobs] = lambda: jobs
+    app.dependency_overrides[get_settings] = lambda: {
+        "uploads_dir": str(link), "max_upload_mb": 1,
+    }
+    try:
+        c = TestClient(app)
+        resp = c.post("/documents", files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")})
+        assert resp.status_code == 202
+        job = jobs.get(resp.json()["job_id"])
+        assert job["source_file"] == str((real / "b.pdf").resolve())
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_post_documents_strips_path_traversal(client):
     c, jobs, uploads = client
     resp = c.post("/documents", files={"file": ("../../evil.pdf", io.BytesIO(b"a"), "application/pdf")})
