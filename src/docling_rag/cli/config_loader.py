@@ -16,6 +16,7 @@ _DEFAULTS = {
     "database_url": "postgresql://docling:docling@127.0.0.1:5432/docling_rag",
     "chunk_max_tokens": 512,
     "uploads_dir": "/uploads",
+    "max_upload_mb": 100,
 }
 
 

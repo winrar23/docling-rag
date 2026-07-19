@@ -15,7 +15,9 @@ from tests.fakes import InMemoryJobs  # noqa: E402
 def client(tmp_path):
     jobs = InMemoryJobs()
     app.dependency_overrides[get_jobs] = lambda: jobs
-    app.dependency_overrides[get_settings] = lambda: {"uploads_dir": str(tmp_path)}
+    app.dependency_overrides[get_settings] = lambda: {
+        "uploads_dir": str(tmp_path), "max_upload_mb": 1,
+    }
     yield TestClient(app), jobs, tmp_path
     app.dependency_overrides.clear()
 
@@ -36,9 +38,30 @@ def test_post_documents_accepts_pdf_returns_202(client):
 
 
 def test_post_documents_rejects_bad_extension_400(client):
-    c, _, _ = client
+    c, jobs, uploads = client
     resp = c.post("/documents", files={"file": ("notes.txt", io.BytesIO(b"x"), "text/plain")})
     assert resp.status_code == 400
+    assert jobs.list() == []  # без побочных эффектов:
+    assert list(uploads.iterdir()) == []  # ни джобы, ни файла
+
+
+def test_post_documents_rejects_oversized_413(client):
+    c, jobs, uploads = client
+    big = io.BytesIO(b"x" * (1024 * 1024 + 1))  # лимит в фикстуре — 1 МБ
+    resp = c.post("/documents", files={"file": ("big.pdf", big, "application/pdf")})
+    assert resp.status_code == 413
+    assert jobs.list() == []  # джоба не создана
+    assert list(uploads.iterdir()) == []  # частичный файл убран
+
+
+def test_post_documents_oversized_keeps_previous_file(client):
+    """Превышение лимита при перезаливке не должно портить уже лежащий файл."""
+    c, _, uploads = client
+    (uploads / "b.pdf").write_bytes(b"old")
+    big = io.BytesIO(b"x" * (1024 * 1024 + 1))
+    resp = c.post("/documents", files={"file": ("b.pdf", big, "application/pdf")})
+    assert resp.status_code == 413
+    assert (uploads / "b.pdf").read_bytes() == b"old"
 
 
 def test_post_documents_dedup_returns_409_with_existing_job(client):
@@ -48,6 +71,31 @@ def test_post_documents_dedup_returns_409_with_existing_job(client):
     r2 = c.post("/documents", files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")})
     assert r2.status_code == 409
     assert r2.json()["detail"]["job_id"] == r1.json()["job_id"]
+
+
+def test_post_documents_stores_resolved_source_file(tmp_path):
+    """jobs.source_file должен совпадать с documents.source_file (indexer резолвит путь).
+
+    uploads_dir через symlink: без resolve в API ключи расходятся — этап B
+    не сможет скоррелировать джобу с документом.
+    """
+    real = tmp_path / "real-uploads"
+    real.mkdir()
+    link = tmp_path / "link-uploads"
+    link.symlink_to(real)
+    jobs = InMemoryJobs()
+    app.dependency_overrides[get_jobs] = lambda: jobs
+    app.dependency_overrides[get_settings] = lambda: {
+        "uploads_dir": str(link), "max_upload_mb": 1,
+    }
+    try:
+        c = TestClient(app)
+        resp = c.post("/documents", files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")})
+        assert resp.status_code == 202
+        job = jobs.get(resp.json()["job_id"])
+        assert job["source_file"] == str((real / "b.pdf").resolve())
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_post_documents_strips_path_traversal(client):
