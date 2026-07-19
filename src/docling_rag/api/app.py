@@ -10,15 +10,24 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.responses import JSONResponse
 
 from docling_rag.cli.config_loader import load_config
+from docling_rag.core.embedder import get_embedder
 from docling_rag.core.errors import (
     EmbedServiceUnavailableError,
     StorageSchemaMissingError,
     StorageUnavailableError,
 )
 from docling_rag.core.parser import SUPPORTED_EXTENSIONS
-from docling_rag.core.protocols import DocumentRegistryBackend, JobBackend, StorageBackend
+from docling_rag.core.protocols import (
+    DocumentRegistryBackend,
+    EmbedderBackend,
+    JobBackend,
+    SearchLogBackend,
+    StorageBackend,
+)
+from docling_rag.core.search import resolve_allowed_sources, run_search
 from docling_rag.storage.db_jobs import DBJobs
 from docling_rag.storage.db_registry import DBRegistry
+from docling_rag.storage.db_search_log import DBSearchLog
 from docling_rag.storage.db_storage import DBStorage
 
 app = FastAPI(title="docling-rag")
@@ -57,9 +66,56 @@ def get_storage(settings: dict = Depends(get_settings)) -> StorageBackend:
     return DBStorage(settings["database_url"])
 
 
+@lru_cache(maxsize=2)
+def _embedder_singleton(embed_url: str | None, model: str) -> EmbedderBackend:
+    return get_embedder({"embed_url": embed_url, "embedding_model": model})
+
+
+def get_search_embedder(settings: dict = Depends(get_settings)) -> EmbedderBackend:
+    return _embedder_singleton(settings.get("embed_url"), settings.get("embedding_model", ""))
+
+
+def get_search_log(settings: dict = Depends(get_settings)) -> SearchLogBackend:
+    return DBSearchLog(settings["database_url"])
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/search")
+def search(q: str = Query(min_length=1),
+           top_k: int | None = Query(default=None, ge=1, le=50),
+           tag: list[str] = Query(default=[]),
+           topic: str | None = None,
+           settings: dict = Depends(get_settings),
+           registry: DocumentRegistryBackend = Depends(get_registry),
+           storage: StorageBackend = Depends(get_storage),
+           embedder: EmbedderBackend = Depends(get_search_embedder),
+           search_log: SearchLogBackend = Depends(get_search_log)) -> dict:
+    k = top_k if top_k is not None else settings["top_k_results"]
+    allowed = resolve_allowed_sources(registry, tags=tag, topic=topic)
+    if allowed == set():  # фильтры заданы, но ничего не совпало
+        return {"query": q, "results": []}
+    try:
+        found = run_search(q, embedder, storage, top_k=k, allowed_sources=allowed)
+    except FileNotFoundError:  # пустое хранилище — у HTTP нет exit-код контракта CLI
+        return {"query": q, "results": []}
+    titles = registry.load()
+    results = [{
+        "text": chunk["text"], "score": float(score),
+        "source_file": chunk["source_file"],
+        "title": (titles.get(chunk["source_file"]) or {}).get("title"),
+        "page_number": chunk["page_number"], "headings": chunk["headings"],
+        "element_type": chunk["element_type"],
+    } for chunk, score in found]
+    if results:
+        try:
+            search_log.log(q, results[0]["score"])
+        except Exception as e:  # отказ лога не роняет поиск (как в CLI)
+            print(f"предупреждение: лог поиска не записан: {e}", file=sys.stderr)
+    return {"query": q, "results": results}
 
 
 def _save_upload(src, dest: str, max_bytes: int) -> None:

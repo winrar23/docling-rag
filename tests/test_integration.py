@@ -162,3 +162,45 @@ def test_ingestion_e2e_upload_worker_done(clean_db, tmp_path):
         assert DBStorage(dsn).count_by_source(str((tmp_path / "mini.md").resolve())) >= 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_search_api_e2e_real_model(clean_db, tmp_path):
+    """Индексация мини-документа реальной моделью → GET /search находит его."""
+    from fastapi.testclient import TestClient
+
+    from docling_rag.api.app import (
+        app, get_registry, get_search_embedder, get_search_log, get_settings, get_storage,
+    )
+    from docling_rag.core.embedder import Embedder
+    from docling_rag.core.indexer import index_files
+    from docling_rag.core.parser import Parser
+    from docling_rag.storage.db_registry import DBRegistry
+    from docling_rag.storage.db_search_log import DBSearchLog
+    from docling_rag.storage.db_storage import DBStorage
+
+    dsn = clean_db
+    md = tmp_path / "mini.md"
+    md.write_text("# Replication\n\nSynchronous replication waits for the follower ack.\n")
+    embedder = Embedder(model_name="deepvk/USER-bge-m3")
+    storage, registry = DBStorage(dsn), DBRegistry(dsn)
+    report = index_files([md], Parser(), embedder, storage, registry,
+                         embedding_model="deepvk/USER-bge-m3", title="Mini")
+    assert report.chunks_added >= 1
+
+    app.dependency_overrides[get_settings] = lambda: {
+        "database_url": dsn, "top_k_results": 5,
+    }
+    app.dependency_overrides[get_registry] = lambda: registry
+    app.dependency_overrides[get_storage] = lambda: storage
+    app.dependency_overrides[get_search_embedder] = lambda: embedder
+    app.dependency_overrides[get_search_log] = lambda: DBSearchLog(dsn)
+    try:
+        body = TestClient(app).get("/search", params={"q": "синхронная репликация"}).json()
+        assert body["results"], "поиск по реальной модели ничего не нашёл"
+        assert "replication" in body["results"][0]["text"].lower()
+        import psycopg
+        with psycopg.connect(dsn) as conn:
+            n = conn.execute("SELECT count(*) FROM searches").fetchone()[0]
+        assert n == 1  # сквозной лог в таблицу searches
+    finally:
+        app.dependency_overrides.clear()
