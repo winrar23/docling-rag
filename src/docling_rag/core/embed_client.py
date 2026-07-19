@@ -13,7 +13,10 @@ from docling_rag.core.errors import EmbedServiceUnavailableError
 class HTTPEmbedder:
     """POST {embed_url}/embed {"texts": [...]} -> ndarray float32 (N, dim)."""
 
-    def __init__(self, base_url: str, timeout: float = 120.0,
+    # Read — щедрый: CPU-батч 128x512 токенов на большой книге может не уложиться
+    # в старые плоские 120s (риск ReadTimeout). Connect — быстрый: недоступность
+    # сервиса (порт не слушает) должна обнаруживаться быстро, а не ждать 600s.
+    def __init__(self, base_url: str, timeout: float | httpx.Timeout = httpx.Timeout(600.0, connect=10.0),
                  transport: httpx.BaseTransport | None = None) -> None:
         self._client = httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout,
                                     transport=transport)

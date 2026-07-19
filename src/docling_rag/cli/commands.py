@@ -5,7 +5,12 @@ import click
 
 from docling_rag.cli.config_loader import load_config, ConfigError
 from docling_rag.core.embedder import get_embedder
-from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
+from docling_rag.core.errors import (
+    EmbedServiceUnavailableError,
+    StorageError,
+    StorageSchemaMissingError,
+    StorageUnavailableError,
+)
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import SearchLogBackend, StorageBackend
@@ -46,6 +51,13 @@ def _db_unavailable(cfg: dict, e: Exception) -> click.ClickException:
 
 def _schema_missing() -> click.ClickException:
     return click.ClickException("Схема БД не инициализирована. Выполните: docling-rag init")
+
+
+def _embed_unavailable(e: Exception) -> click.ClickException:
+    return click.ClickException(
+        f"Сервис эмбеддингов недоступен: {e}\n"
+        "Запустите: docker compose up -d embed"
+    )
 
 
 @click.group()
@@ -99,6 +111,8 @@ def add(
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        raise _embed_unavailable(e) from e
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
@@ -147,6 +161,8 @@ def search(
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        raise _embed_unavailable(e) from e
 
     if not results:
         click.echo("Ничего не найдено.")
@@ -308,6 +324,10 @@ def ask(question: str, config: str | None, top_k: int | None) -> None:
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        # ДО generic-хендлера: иначе _is_connection_error() находит вложенный
+        # httpx.ConnectError и ошибочно винит LM Studio, хотя лежит embed-сервис.
+        raise _embed_unavailable(e) from e
     except Exception as e:
         if _is_connection_error(e):
             raise click.ClickException(

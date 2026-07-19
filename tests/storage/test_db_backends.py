@@ -239,6 +239,26 @@ class TestDomainErrorTranslation:
         finally:
             init_schema(db_url)  # восстановить схему для соседних тестов (идемпотентно)
 
+    def test_missing_column_raises_schema_missing(self, db_url):
+        """Непромигрированная БД (колонка отсутствует) — живая приёмка поймала здесь
+        сырой psycopg.errors.UndefinedColumn -> 500 вместо понятной подсказки."""
+        from docling_rag.core.errors import StorageSchemaMissingError
+        from docling_rag.storage.db_schema import init_schema
+        from docling_rag.storage.db_storage import DBStorage
+        with psycopg.connect(db_url) as conn:
+            conn.execute("ALTER TABLE chunks DROP COLUMN element_type")
+            conn.commit()
+        try:
+            with pytest.raises(StorageSchemaMissingError):
+                DBStorage(db_url).load()
+        finally:
+            with psycopg.connect(db_url) as conn:
+                conn.execute(
+                    "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS element_type"
+                    " text NOT NULL DEFAULT 'text'"
+                )
+                conn.commit()  # init_schema не восстановит колонку: CREATE TABLE IF NOT EXISTS — no-op на существующей таблице
+
 
 class TestDBSearchLog:
     """Лог поисковых запросов в БД (заменил файловый лог: в docker он умирал с контейнером)."""

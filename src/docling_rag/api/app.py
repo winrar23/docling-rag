@@ -1,4 +1,5 @@
-# api/app.py — этап 4 A: приём книг (ingestion). Каталог/чат — этапы B/C.
+# api/app.py — этап 4-A (приём книг, ingestion) + 4-B (каталог документов, поиск).
+# Чат — этап C.
 import os
 import sys
 from datetime import datetime, timezone

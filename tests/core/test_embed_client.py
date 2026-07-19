@@ -45,6 +45,20 @@ def test_embed_service_error_is_not_storage_error():
     assert not issubclass(EmbedServiceUnavailableError, StorageError)
 
 
+def test_default_timeout_is_generous_read_fast_connect():
+    """Flat 120s был слишком тонким против CPU-батча 128x512 токенов на большой
+    книге (риск ReadTimeout). Read — щедрый (600s), connect — быстрый (10s),
+    чтобы недоступность сервиса обнаруживалась быстро, а не таймаутила долго."""
+    emb = HTTPEmbedder("http://embed:8100")
+    assert emb._client.timeout == httpx.Timeout(600.0, connect=10.0)
+
+
+def test_timeout_still_accepts_float_for_backward_compat():
+    """Сигнатура не должна ломать существующих вызывающих, передающих float."""
+    emb = HTTPEmbedder("http://embed:8100", timeout=5.0)
+    assert emb._client.timeout == httpx.Timeout(5.0)
+
+
 def test_embed_accepts_batch_size_kwarg_for_indexer_compat():
     """indexer вызывает embed(batch, batch_size=...) для локального Embedder;
     HTTPEmbedder должен принимать (и игнорировать) тот же kwarg."""

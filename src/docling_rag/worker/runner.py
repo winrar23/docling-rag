@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from docling_rag.core.errors import EmbedServiceUnavailableError
 from docling_rag.core.indexer import index_files
 from docling_rag.core.protocols import (
     DocumentRegistryBackend,
@@ -73,6 +74,12 @@ def process_one_job(jobs: JobBackend, deps: WorkerDeps, job: dict, index_fn=inde
             jobs.fail(job_id, msg)
         else:
             jobs.complete(job_id, report.chunks_added)
+    except EmbedServiceUnavailableError:
+        # Транзиентный отказ embed-сервиса (restart: unless-stopped может временно
+        # его уронить) — postgres-то жив, терминальный fail тут неуместен. Джобу
+        # НЕ трогаем (остаётся running): пробрасываем наверх в run_loop, где цикл
+        # переживёт исключение, а джоба вернётся в очередь через requeue_stale.
+        raise
     except Exception as e:
         jobs.fail(job_id, f"{type(e).__name__}: {e}")
 

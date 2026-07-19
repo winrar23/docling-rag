@@ -1,4 +1,7 @@
 """Юниты воркера на InMemoryJobs + фейковый индексатор (без postgres/моделей)."""
+import pytest
+
+from docling_rag.core.errors import EmbedServiceUnavailableError
 from docling_rag.core.indexer import IndexReport, EMBEDDING
 from docling_rag.worker.runner import WorkerDeps, process_one_job, make_progress
 from tests.fakes import InMemoryJobs
@@ -43,6 +46,24 @@ def test_process_one_job_exception_marks_failed():
     process_one_job(jobs, _deps(), job, index_fn=boom)
     j = jobs.get(jid)
     assert j["status"] == "failed" and "docling died" in j["error"]
+
+
+def test_process_one_job_embed_unavailable_stays_running_not_failed():
+    """Транзиентный отказ embed-сервиса (restart: unless-stopped может временно его
+    уронить) не должен терминально фейлить джобу — postgres-то жив. Джоба остаётся
+    running и вернётся в очередь через requeue_stale по устаревшему heartbeat."""
+    jobs = InMemoryJobs()
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    job = jobs.claim_next()
+
+    def boom(*a, **k):
+        raise EmbedServiceUnavailableError("connection refused")
+
+    with pytest.raises(EmbedServiceUnavailableError):
+        process_one_job(jobs, _deps(), job, index_fn=boom)
+
+    j = jobs.get(jid)
+    assert j["status"] == "running"  # НЕ failed
 
 
 def test_make_progress_writes_step_to_job():
@@ -92,6 +113,28 @@ def test_run_loop_survives_transient_claim_failure(capsys):
     assert jobs.get(jid)["status"] == "done"  # цикл пережил сбой и обработал джобу
     assert calls["n"] >= 2
     assert "pg down" in capsys.readouterr().err
+
+
+def test_run_loop_survives_embed_service_unavailable(capsys):
+    """run_loop не должен фейлить джобу терминально при обрыве embed-сервиса —
+    цикл переживает исключение (как обрыв postgres) и джоба остаётся running."""
+    import threading
+
+    from docling_rag.worker.runner import run_loop
+
+    jobs = InMemoryJobs()
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    stop = threading.Event()
+
+    def boom(*a, **k):
+        stop.set()  # одного прогона достаточно — иначе цикл будет крутиться бесконечно
+        raise EmbedServiceUnavailableError("connection refused")
+
+    run_loop(jobs, _deps(), poll_interval=0.01, stop=stop, index_fn=boom)
+
+    j = jobs.get(jid)
+    assert j["status"] == "running"  # НЕ failed
+    assert "connection refused" in capsys.readouterr().err
 
 
 def test_build_deps_wires_from_config(monkeypatch):
