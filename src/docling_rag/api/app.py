@@ -1,6 +1,7 @@
 # api/app.py — этап 4 A: приём книг (ingestion). Каталог/чат — этапы B/C.
 import os
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -13,7 +14,9 @@ from docling_rag.storage.db_jobs import DBJobs
 app = FastAPI(title="docling-rag")
 
 
+@lru_cache
 def get_settings() -> dict:
+    # Конфиг читается один раз на процесс; смена config.yaml требует рестарта API.
     return load_config()
 
 
