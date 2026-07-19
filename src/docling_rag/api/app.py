@@ -59,6 +59,9 @@ async def create_document(
 
 def _with_liveness(job: dict) -> dict:
     now = datetime.now(timezone.utc)
+    finished = job.get("finished_at")
+    if finished is not None:  # done/failed: счётчики заморожены на моменте завершения
+        now = min(now, finished)
     started, updated = job.get("started_at"), job.get("updated_at")
     job = dict(job)
     job["elapsed_sec"] = int((now - started).total_seconds()) if started else None

@@ -53,3 +53,21 @@ def test_get_queued_job_has_null_elapsed(client):
 def test_list_jobs_rejects_negative_limit(client):
     c, _ = client
     assert c.get("/jobs?limit=-1").status_code == 422
+
+
+def test_terminal_job_liveness_frozen_at_finished_at(client):
+    """elapsed_sec/heartbeat_age_sec у done/failed не растут после завершения."""
+    from datetime import datetime, timedelta, timezone
+
+    c, jobs = client
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jobs.claim_next()
+    jobs.complete(jid, chunks_added=3)
+    now = datetime.now(timezone.utc)
+    jobs._rows[jid]["started_at"] = now - timedelta(seconds=100)
+    jobs._rows[jid]["updated_at"] = now - timedelta(seconds=50)
+    jobs._rows[jid]["finished_at"] = now - timedelta(seconds=50)
+
+    body = c.get(f"/jobs/{jid}").json()
+    assert body["elapsed_sec"] == 50  # finished - started, а не now - started
+    assert body["heartbeat_age_sec"] == 0  # finished - updated
