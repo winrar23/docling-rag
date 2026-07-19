@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -76,14 +77,30 @@ def process_one_job(jobs: JobBackend, deps: WorkerDeps, job: dict, index_fn=inde
         jobs.fail(job_id, f"{type(e).__name__}: {e}")
 
 
+def _log_cycle_error(e: Exception, poll_interval: float) -> None:
+    print(f"worker: сбой цикла ({type(e).__name__}: {e}), повтор через {poll_interval}с",
+          file=sys.stderr, flush=True)
+
+
 def run_loop(jobs: JobBackend, deps: WorkerDeps, *, poll_interval: float = 3.0,
-             stale_seconds: int = 60, max_attempts: int = 3, stop: threading.Event | None = None) -> None:
-    jobs.requeue_stale(stale_seconds, max_attempts)
+             stale_seconds: int = 60, max_attempts: int = 3, stop: threading.Event | None = None,
+             index_fn=index_files) -> None:
+    try:
+        jobs.requeue_stale(stale_seconds, max_attempts)  # рестарт-восстановление зависших running
+    except Exception as e:
+        _log_cycle_error(e, poll_interval)
     while stop is None or not stop.is_set():
-        job = jobs.claim_next()
-        if job is None:
-            jobs.requeue_stale(stale_seconds, max_attempts)
+        # Временный сбой БД (claim/requeue/fail при обработке) не роняет воркер:
+        # предупреждение в stderr, пауза, повтор; недообработанная джоба вернётся
+        # через requeue_stale по устаревшему heartbeat.
+        try:
+            job = jobs.claim_next()
+            if job is None:
+                jobs.requeue_stale(stale_seconds, max_attempts)
+                time.sleep(poll_interval)
+                continue
+            with _Heartbeat(jobs, job["id"]):
+                process_one_job(jobs, deps, job, index_fn=index_fn)
+        except Exception as e:
+            _log_cycle_error(e, poll_interval)
             time.sleep(poll_interval)
-            continue
-        with _Heartbeat(jobs, job["id"]):
-            process_one_job(jobs, deps, job)
