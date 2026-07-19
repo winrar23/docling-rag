@@ -1,6 +1,7 @@
 # api/app.py — этап 4 A: приём книг (ingestion). Каталог/чат — этапы B/C.
 import os
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 
@@ -78,6 +79,7 @@ def get_job(job_id: str, jobs: JobBackend = Depends(get_jobs)) -> dict:
 
 
 @app.get("/jobs")
-def list_jobs(limit: int = Query(default=20, ge=1, le=100), status: str | None = None,
+def list_jobs(limit: int = Query(default=20, ge=1, le=100),
+              status: Literal["queued", "running", "done", "failed"] | None = None,
               jobs: JobBackend = Depends(get_jobs)) -> list[dict]:
     return [_with_liveness(j) for j in jobs.list(limit=limit, status=status)]

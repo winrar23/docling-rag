@@ -55,6 +55,21 @@ def test_list_jobs_rejects_negative_limit(client):
     assert c.get("/jobs?limit=-1").status_code == 422
 
 
+def test_list_jobs_rejects_unknown_status(client):
+    c, _ = client
+    assert c.get("/jobs?status=bogus").status_code == 422
+
+
+def test_list_jobs_filters_by_valid_status(client):
+    c, jobs = client
+    jobs.create("/uploads/a.pdf", "a.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jobs.claim_next()  # a.pdf -> running
+    resp = c.get("/jobs?status=queued")
+    assert resp.status_code == 200
+    assert [j["id"] for j in resp.json()] == [jid]
+
+
 def test_terminal_job_liveness_frozen_at_finished_at(client):
     """elapsed_sec/heartbeat_age_sec у done/failed не растут после завершения."""
     from datetime import datetime, timedelta, timezone
