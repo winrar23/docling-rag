@@ -134,7 +134,9 @@ def test_ingestion_e2e_upload_worker_done(clean_db, tmp_path):
     dsn = clean_db
     jobs = DBJobs(dsn)
     app.dependency_overrides[get_jobs] = lambda: jobs
-    app.dependency_overrides[get_settings] = lambda: {"uploads_dir": str(tmp_path), "database_url": dsn}
+    app.dependency_overrides[get_settings] = lambda: {
+        "uploads_dir": str(tmp_path), "database_url": dsn, "max_upload_mb": 100,
+    }
     try:
         client = TestClient(app)
         md = b"# Replication\n\nSynchronous replication waits for the follower ack.\n"
