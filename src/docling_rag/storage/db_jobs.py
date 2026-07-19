@@ -71,6 +71,15 @@ class DBJobs:
             ).fetchone()
         return _normalize(row)
 
+    def find_latest_by_source(self, source_file):
+        """Последняя по created_at джоба любого статуса (для карточки каталога)."""
+        with _translate_db_errors(), self._connect() as conn:
+            row = conn.execute(
+                f"SELECT {_COLS} FROM jobs WHERE source_file = %s"
+                " ORDER BY created_at DESC LIMIT 1", (source_file,),
+            ).fetchone()
+        return _normalize(row)
+
     def claim_next(self):
         with _translate_db_errors(), self._connect() as conn:
             row = conn.execute(

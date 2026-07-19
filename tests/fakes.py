@@ -142,6 +142,10 @@ class InMemoryJobs:
                 return dict(r)
         return None
 
+    def find_latest_by_source(self, source_file):
+        rows = [r for r in self._rows.values() if r["source_file"] == source_file]
+        return dict(sorted(rows, key=lambda r: r["created_at"])[-1]) if rows else None
+
     def claim_next(self):
         for r in sorted(self._rows.values(), key=lambda r: r["created_at"]):
             if r["status"] == "queued":

@@ -15,8 +15,10 @@ from docling_rag.core.errors import (
     StorageUnavailableError,
 )
 from docling_rag.core.parser import SUPPORTED_EXTENSIONS
-from docling_rag.core.protocols import JobBackend
+from docling_rag.core.protocols import DocumentRegistryBackend, JobBackend, StorageBackend
 from docling_rag.storage.db_jobs import DBJobs
+from docling_rag.storage.db_registry import DBRegistry
+from docling_rag.storage.db_storage import DBStorage
 
 app = FastAPI(title="docling-rag")
 
@@ -44,6 +46,14 @@ def get_settings() -> dict:
 
 def get_jobs(settings: dict = Depends(get_settings)) -> JobBackend:
     return DBJobs(settings["database_url"])
+
+
+def get_registry(settings: dict = Depends(get_settings)) -> DocumentRegistryBackend:
+    return DBRegistry(settings["database_url"])
+
+
+def get_storage(settings: dict = Depends(get_settings)) -> StorageBackend:
+    return DBStorage(settings["database_url"])
 
 
 @app.get("/health")
@@ -132,3 +142,34 @@ def list_jobs(limit: int = Query(default=20, ge=1, le=100),
               status: Literal["queued", "running", "done", "failed"] | None = None,
               jobs: JobBackend = Depends(get_jobs)) -> list[dict]:
     return [_with_liveness(j) for j in jobs.list(limit=limit, status=status)]
+
+
+def _document_card(source: str, entry: dict, storage: StorageBackend, jobs: JobBackend) -> dict:
+    job = jobs.find_latest_by_source(source)
+    return {
+        "id": entry["id"], "source_file": source,
+        "title": entry["title"], "topic": entry["topic"], "tags": entry["tags"],
+        "added_at": entry["added_at"],
+        "chunks": storage.count_by_source(source),
+        "indexing": {"status": job["status"], "job_id": job["id"]} if job else None,
+    }
+
+
+@app.get("/documents")
+def list_documents(registry: DocumentRegistryBackend = Depends(get_registry),
+                   storage: StorageBackend = Depends(get_storage),
+                   jobs: JobBackend = Depends(get_jobs)) -> list[dict]:
+    cards = [_document_card(s, e, storage, jobs) for s, e in registry.load().items()]
+    cards.sort(key=lambda c: c["added_at"], reverse=True)
+    return cards
+
+
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: str, registry: DocumentRegistryBackend = Depends(get_registry),
+                 storage: StorageBackend = Depends(get_storage),
+                 jobs: JobBackend = Depends(get_jobs)) -> dict:
+    found = registry.get_by_id(doc_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    source, entry = found
+    return _document_card(source, entry, storage, jobs)

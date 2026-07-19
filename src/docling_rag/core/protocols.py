@@ -117,6 +117,10 @@ class JobBackend(Protocol):
         """Return a queued/running job for this source, else None (dedup guard)."""
         ...
 
+    def find_latest_by_source(self, source_file: str) -> dict | None:
+        """Return the newest job (any status) for this source, else None (catalog card)."""
+        ...
+
     def claim_next(self) -> dict | None:
         """Atomically move one queued job to running; return it or None."""
         ...
