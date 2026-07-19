@@ -153,6 +153,13 @@ def test_list_orders_limits_and_filters(jobs, clean_db):
     assert [r["id"] for r in jobs.list(status="running")] == [j1]
 
 
+def test_find_latest_by_source_integration(jobs):
+    j1 = jobs.create("/uploads/l.pdf", "l.pdf", None, None, [])
+    jobs.claim_next(); jobs.fail(j1, "x")
+    j2 = jobs.create("/uploads/l.pdf", "l.pdf", None, None, [])
+    assert jobs.find_latest_by_source("/uploads/l.pdf")["id"] == j2
+
+
 def test_update_progress_preserves_counters_when_none(jobs):
     """Шаг STORING шлёт (None, None) — COALESCE не обнуляет счётчики embed'а."""
     jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])

@@ -25,6 +25,10 @@ def _translate_db_errors():
         raise StorageUnavailableError(str(e)) from e
     except psycopg.errors.UndefinedTable as e:
         raise StorageSchemaMissingError(str(e)) from e
+    except psycopg.errors.UndefinedColumn as e:
+        # Непромигрированная БД (колонка отсутствует, напр. после апдейта схемы
+        # без docling-rag init) — та же подсказка, что и для отсутствующей таблицы.
+        raise StorageSchemaMissingError(str(e)) from e
     except psycopg.ProgrammingError as e:
         # register_vector/DDL без расширения vector: тип "vector" отсутствует => схема не создана
         if "vector" in str(e):

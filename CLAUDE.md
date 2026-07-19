@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). 135 fast + 35 integration + 1 slow тест, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). Остаток этапа 4 — C (chat-API) и D (веб-UI). 178 fast + 40 integration + 1 slow тест, все зелёные.
 
 ## Stack
 
@@ -15,8 +15,8 @@ CLI требует postgres, поэтому боевой запуск тольк
 
 ```bash
 cp .env.example .env   # пути volumes и порты — правь под себя
-docker compose up -d --wait          # postgres + api (health: :8000/health)
-docker compose run --rm cli init                      # DDL: extension + таблицы + HNSW (идемпотентно)
+docker compose up -d --wait postgres embed api worker   # embed :8100/health (модель), api :8000/health
+docker compose run --rm cli init                      # DDL: extension + таблицы + HNSW (идемпотентно; повторный init после апгрейда — см. Gotchas)
 docker compose run --rm cli add /books/my-book.pdf --title "My Book" --topic "..." --tag arch
 docker compose run --rm cli search "запрос"           # + --tag/--topic/--top-k
 docker compose run --rm cli list
@@ -25,6 +25,12 @@ docker compose run --rm cli ask "вопрос"   # LM Studio на хосте, п
 docker compose run --rm cli test tests/ -m "not integration and not slow"  # тесты в контейнере
 docker compose --profile dev up api-dev    # hot-reload API на :8001
 # update <file> — P1, не реализован
+
+# read-API (этап 4-B), пример
+curl -s -X POST http://localhost:8000/documents -F "file=@book.md" -F "title=My Book"  # 202 + job_id
+curl -s http://localhost:8000/documents                     # каталог: chunks + indexing.status
+curl -s "http://localhost:8000/search?q=запрос"              # семантический поиск по HTTP
+curl -s -X DELETE http://localhost:8000/documents/<id>       # {deleted, chunks, file_removed}
 ```
 
 ## Commands (dev на хосте — только тесты)
@@ -33,9 +39,9 @@ docker compose --profile dev up api-dev    # hot-reload API на :8001
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,agent,api]"
 
-python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 135 passed, 36 deselected (герметичны, postgres НЕ нужен)
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 178 passed, 41 deselected (герметичны, postgres НЕ нужен)
 docker compose up -d postgres                                # прекондишн для integration
-python3 -m pytest tests/ -m integration                      # 35 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
+python3 -m pytest tests/ -m integration                      # 39 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 ```
 
 ## Architecture
@@ -51,35 +57,37 @@ docling-rag/
 │   ├── core/
 │   │   ├── parser.py     # Docling парсер → DoclingDocument; SUPPORTED_EXTENSIONS = {.pdf, .docx, .md}
 │   │   ├── chunker.py    # chunk_document(); HybridChunker кеширован per (embedding_model, max_tokens)
-│   │   ├── embedder.py   # Sentence Transformers, L2-нормализация, настраиваемый batch_size
+│   │   ├── embedder.py   # Embedder (Sentence Transformers, L2-норм.) + get_embedder(cfg) фактори: embed_url → HTTP, иначе локальная модель
+│   │   ├── embed_client.py # HTTPEmbedder — EmbedderBackend без загрузки модели; POST {embed_url}/embed; сетевые ошибки → EmbedServiceUnavailableError
 │   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store, per-file error isolation
-│   │   ├── search.py     # run_search() + resolve_allowed_sources() — переиспользуются CLI search и agent tool
+│   │   ├── search.py     # run_search() + resolve_allowed_sources() — переиспользуются CLI search, GET /search и agent tool
 │   │   ├── agent.py      # create_agent(model) + build_lmstudio_model(...); требует .[agent]
-│   │   ├── protocols.py  # StorageBackend (+count_by_source) + DocumentRegistryBackend + SearchLogBackend Protocol — в аннотациях (search.py, indexer.py, commands.py)
-│   │   └── errors.py     # StorageError, StorageUnavailableError, StorageSchemaMissingError, UnsupportedFormatError, LLMUnavailableError
+│   │   ├── protocols.py  # StorageBackend/DocumentRegistryBackend/SearchLogBackend/JobBackend/EmbedderBackend Protocol — в аннотациях (search.py, indexer.py, commands.py, api/app.py)
+│   │   └── errors.py     # StorageError, StorageUnavailableError, StorageSchemaMissingError, UnsupportedFormatError, LLMUnavailableError, EmbedServiceUnavailableError
 │   ├── api/
-│   │   └── app.py        # FastAPI: GET /health; POST /documents (ingestion), GET /jobs/{id}, GET /jobs; требует .[api]; REST каталога/чата — этапы B/C
+│   │   ├── app.py        # FastAPI: GET /health, POST /documents (ingestion), GET /jobs/{id}, GET /jobs, GET/DELETE /documents(/{id}), GET /search; 503-хендлеры доменных ошибок; требует .[api]; чат-API — этап C
+│   │   └── embed_app.py  # embed-сервис: create_app() грузит USER-bge-m3 блокирующе, POST /embed {texts} -> {embeddings, model, dim}
 │   ├── worker/
 │   │   ├── runner.py     # process_one_job/_Heartbeat/run_loop — фоновая индексация джоб; вне core/ (импортирует storage)
-│   │   └── __main__.py   # точка входа контейнерного worker-сервиса: build_deps(cfg) + run_loop
+│   │   └── __main__.py   # точка входа контейнерного worker-сервиса: build_deps(cfg) (embedder через get_embedder) + run_loop
 │   └── storage/
-│       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents + chunks + searches + jobs + HNSW-индекс; init_schema(dsn)
+│       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents(+id uuid) + chunks + searches + jobs + HNSW-индекс; init_schema(dsn), идемпотентно
 │       ├── db_storage.py    # chunks+embeddings в pg (StorageBackend impl); _translate_db_errors psycopg→доменные
-│       ├── db_registry.py   # documents: title/topic/tags/added_at (DocumentRegistryBackend impl)
+│       ├── db_registry.py   # documents: title/topic/tags/added_at + id (DocumentRegistryBackend impl); get_by_id(doc_id) для REST-адресации
 │       ├── db_search_log.py # searches: query/top_score/searched_at (SearchLogBackend impl)
 │       └── db_jobs.py       # jobs: очередь фоновой индексации (JobBackend impl); claim_next через FOR UPDATE SKIP LOCKED
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 103 fast + 23 integration + 1 slow
-├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/test/cli
-├── compose.yaml             # postgres + api + worker + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 178 fast + 40 integration + 1 slow
+├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/embed/test/cli
+├── compose.yaml             # postgres + embed + api + worker + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
 ├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
 └── docker/
-    ├── entrypoint.sh          # api → uvicorn :8000; test → pytest; иначе → docling-rag CLI
-    └── config.container.yaml  # запекается в /app/config.yaml: database_url на хост `postgres`, LLM через host.docker.internal:1234
+    ├── entrypoint.sh          # api → uvicorn :8000; embed → uvicorn --factory embed_app:create_app :8100; test → pytest; иначе → docling-rag CLI
+    └── config.container.yaml  # запекается в /app/config.yaml: database_url на хост `postgres`, embed_url на хост `embed`, LLM через host.docker.internal:1234
 ```
 
 Дефолты конфига живут в коде (`cli/config_loader.py::_DEFAULTS`) — репозиторного `config.yaml` НЕТ (удалён: был побайтовым дублем дефолтов и молча их перекрывал). Свой `config.yaml` в cwd или `--config PATH` опциональны.
 
-Схема БД (`db_schema.py`): `documents(source_file PK, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags, status queued|running|done|failed, step, chunks_total/done, error, attempts, created/started/updated/finished_at)` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`.
+Схема БД (`db_schema.py`): `documents(source_file PK, id uuid UNIQUE, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags, status queued|running|done|failed, step, chunks_total/done, error, attempts, created/started/updated/finished_at)` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`. `documents.id` (uuid, `gen_random_uuid()`) + `documents_id_key` (unique index) добавлены этапом 4-B идемпотентной миграцией внутри того же DDL (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`) — `source_file` остаётся PK, FK-цепочка не меняется, `id` только для REST-адресации карточек.
 
 ## Gotchas
 
@@ -113,11 +121,11 @@ docling-rag/
 
 - **Быстрый суит герметичен: postgres НЕ нужен** — юниты работают на `tests/fakes.py::InMemoryStorage`/`InMemoryRegistry`/`InMemorySearchLog` (реализуют Protocol'ы, семантика та же: пустое → `FileNotFoundError`). Проверка герметичности: `docker compose stop postgres && pytest -m "not integration and not slow"` — зелёный
 - **Два autouse-фикстуры герметизации** (`tests/conftest.py`): `hermetic_config` патчит `load_config`; `hermetic_search_log` патчит `docling_rag.cli.commands.DBSearchLog` на in-memory фейк — иначе КАЖДЫЙ `search`-тест открывал бы соединение к несоединяемому DSN и печатал предупреждение, маскируя реальные сбои. `e2e_config` осознанно переопределяет ОБЕ (зависит от них явно): реальная тест-БД + реальная модель + НАСТОЯЩИЙ `DBSearchLog` (иначе сквозной путь логирования в БД остался бы непокрытым — там и пряталась регрессия)
-- **CLI mock-паттерн (актуальный)** — фикстура `fake_backends` (`tests/conftest.py`) патчит `docling_rag.cli.commands.DBStorage`/`.DBRegistry` на in-memory fake'и и отдаёт `(storage, registry)` для сидирования. Патчить `docling_rag.cli.commands.Parser` / `.Embedder`; `init` — патчить `docling_rag.cli.commands.init_schema`; лог — `docling_rag.cli.commands.DBSearchLog`; `chunk_document` вызывается из `core/indexer.py` → патчить `docling_rag.core.indexer.chunk_document`, НЕ `cli.commands.chunk_document`. `ask` — патчить `docling_rag.cli.commands._create_and_run_agent` (сигнатура `(question, cfg, top_k) -> str`, без `data_dir`)
+- **CLI mock-паттерн (актуальный)** — фикстура `fake_backends` (`tests/conftest.py`) патчит `docling_rag.cli.commands.DBStorage`/`.DBRegistry` на in-memory fake'и и отдаёт `(storage, registry)` для сидирования. Патчить `docling_rag.cli.commands.Parser` / `.get_embedder` (НЕ `.Embedder` — с этапа 4-B cli/worker создают эмбеддер через фактори, `MockEmbedder.return_value.embed.return_value = ...`); `init` — патчить `docling_rag.cli.commands.init_schema`; лог — `docling_rag.cli.commands.DBSearchLog`; `chunk_document` вызывается из `core/indexer.py` → патчить `docling_rag.core.indexer.chunk_document`, НЕ `cli.commands.chunk_document`. `ask` — патчить `docling_rag.cli.commands._create_and_run_agent` (сигнатура `(question, cfg, top_k) -> str`, без `data_dir`). API-тесты поиска — `app.dependency_overrides[get_search_embedder] = lambda: FakeEmbedder()` (см. tests/api/test_search_endpoint.py)
 - **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
 - **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
 - **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
-- **Счётчики** — 135 fast (36 deselected), 35 integration, 1 slow
+- **Счётчики** — 178 fast (41 deselected), 40 integration, 1 slow
 
 ### CLI-контракты
 
@@ -139,25 +147,38 @@ docling-rag/
 
 - **postgres как очередь, без Celery/Redis** — `POST /documents` пишет строку в `jobs` (202 + job_id), CPU-тяжёлая индексация в отдельном `worker`-сервисе; `claim_next` через `FOR UPDATE SKIP LOCKED` (есть integration-тест на конкурентный claim с таймаут-стражем)
 - **`POST /documents` — sync def намеренно** — FastAPI уводит его в threadpool, файловый и БД I/O не блокируют event loop. Аплоад пишется чанками 1 МБ в `<dest>.part` + атомарный `os.replace` (весь файл в память не читается); лимит — ключ конфига `max_upload_mb` (дефолт 100), превышение → 413, прежний файл цел
-- **`jobs.source_file` резолвится в API** (`Path.resolve()`) — равен `documents.source_file` (indexer резолвит так же); на этом будет строиться корреляция джоба↔документ этапа B. Дедуп: активная (queued/running) джоба с тем же source_file → 409 + существующий job_id. Partial unique index против TOCTOU отклонён (YAGNI, однопользовательский инструмент)
+- **`jobs.source_file` резолвится в API** (`Path.resolve()`) — равен `documents.source_file` (indexer резолвит так же); на этом строится корреляция джоба↔документ в каталоге 4-B (`find_latest_by_source`). Дедуп: активная (queued/running) джоба с тем же source_file → 409 + существующий job_id. Partial unique index против TOCTOU отклонён (YAGNI, однопользовательский инструмент)
 - **Live-статус** — `GET /jobs/{id}`: `elapsed_sec`/`heartbeat_age_sec` считаются от `started_at`/`updated_at`; у терминальных (done/failed) `now` зажат до `finished_at` — значения заморожены. `?status=` валидируется Literal'ом (мусор → 422). Хартбит: тикер раз в ~10с + каждый тик прогресса; зависшие running возвращает `requeue_stale` (порог 60с, лимит попыток 3)
 - **Воркер переживает обрыв postgres** — итерация `run_loop` в try/except (stderr + пауза + повтор), плюс `restart: unless-stopped` на сервисе; недообработанная джоба вернётся через requeue_stale
 - **`get_settings` кеширован (lru_cache)** — конфиг читается раз на процесс API; смена config.yaml требует рестарта. В тестах — `app.dependency_overrides` (кеш не мешает), тестовые оверрайды settings должны включать `uploads_dir` и `max_upload_mb`
 - **`jobs` — история без FK** — строки джоб переживают удаление документа (как `searches`); `cli delete` их не трогает
 
+### Read-API, поиск и embed-сервис (этап 4-B)
+
+- **`embed`-сервис — единственный процесс с моделью USER-bge-m3** — `api/embed_app.py::create_app()` грузит модель блокирующе ДО старта uvicorn (готовность сервера == готовность модели); `POST /embed {"texts": [...]}` → `{"embeddings": [[...]], "model", "dim"}`. compose: сервис `embed`, healthcheck на GET `:8100/health` (`start_period: 180s` — время загрузки модели); `api`/`worker`/`cli` зависят от `embed: condition: service_healthy`
+- **`get_embedder(cfg)` — единственная точка выбора эмбеддинг-бэкенда** (`core/embedder.py`) — ключ конфига `embed_url` задан → `HTTPEmbedder(embed_url)` (`core/embed_client.py`, HTTP-клиент, модель НЕ грузит); иначе → локальный `Embedder(embedding_model)`. `cli`, `worker` и `api` (для `GET /search`) идут через эту фактори. В контейнерном конфиге `embed_url: http://embed:8100`; на хосте (dev/тесты) ключ `None` → локальная модель (герметичные тесты не поднимают embed)
+- **`HTTPEmbedder.embed(texts, batch_size=32)` принимает `batch_size`, но игнорирует его** — сохранено ради совместимости сигнатуры с `Embedder.embed()` (`indexer.py` передаёт `batch_size` явно); батчинг — забота embed-сервиса, не клиента. Сетевые сбои (connect/timeout/5xx) → `EmbedServiceUnavailableError` (НЕ наследует `StorageError`, как и остальные инфраструктурные ошибки)
+- **503-хендлеры на уровне приложения** (`api/app.py`) — `StorageUnavailableError`, `StorageSchemaMissingError`, `EmbedServiceUnavailableError` перехвачены `@app.exception_handler(...)` и превращены в JSON `503` с понятным `detail` (для отсутствующей схемы — подсказка `docling-rag init`); сами эндпоинты try/except вокруг них не оборачивают
+- **`documents.id` — суррогатный uuid для REST-адресации карточек** — `source_file` остаётся PK (FK `chunks` и корреляция `jobs` не меняются); `DBRegistry.get_by_id(doc_id)` валидирует uuid-формат до похода в БД (не-uuid → `None` → 404, а не 500)
+- **После апгрейда на 4-B на долгоживущих postgres-инстансах нужен повторный `docker compose run --rm cli init`** — миграция `documents.id`/`documents_id_key` идемпотентна, но применяется только явным `init`, НЕ автоматически при старте `api`/`worker`. Без неё `GET /documents` и `GET /search` отвечают `503` «Выполните: docling-rag init» (`UndefinedColumn` → `StorageSchemaMissingError` в `_translate_db_errors`; обнаружено на живой приёмке 2026-07-19 ещё как сырой 500 — postgres с 34-часовым аптаймом был без миграции, `init` починил)
+- **Каталог** — `GET /documents` (карточки: `id`, `source_file`, `title/topic/tags`, `added_at`, `chunks` через `count_by_source`, `indexing: {status, job_id}|null` — самая свежая джоба по `find_latest_by_source`), отсортирован по `added_at` убыв.; `GET /documents/{id}` — та же карточка по одному документу, 404 если не найден
+- **`DELETE /documents/{id}`** — 404 если не найден, 409 если есть активная (queued/running) джоба на этот source (иначе воркер пересоздал бы документ после удаления); удаляет registry-запись (FK-каскад сносит chunks) + `storage.delete_by_source` (идемпотентная страховка) + сам файл, но только если он лежит в `uploads_dir` (книги из `BOOKS_DIR`/`/books` не трогает); отвечает `{deleted, chunks, file_removed}`. `jobs`-история не удаляется
+- **`GET /search`** — HTTP-обёртка над тем же `run_search`/`resolve_allowed_sources`, что CLI `search` и agent tool; `?tag=`/`?topic=` фильтруют как в CLI (пустой match → пустые `results`, не fallback на все документы); пустое хранилище (`FileNotFoundError`) → `{"results": []}`, а не 5xx (у HTTP нет exit-код контракта CLI); непустой результат логируется в `searches` (`DBSearchLog`, отказ лога не роняет запрос). **Agent tool по-прежнему НЕ логирует** — `core/agent.py` вызывает `core/search.py::run_search` напрямую, минуя `GET /search` и его лог (docs/TODO.md п.5 остаётся открытым)
+- **Эмбеддер для поиска синглтон-кеширован на процесс api** — `_embedder_singleton(embed_url, model)` (`@lru_cache(maxsize=2)`) не пересоздаёт `HTTPEmbedder`/`Embedder` на каждый запрос `GET /search`
+
 ### Docker
 
 - **Все volumes — bind-mounts из `.env`** — требование пользователя: расположение данных выбирает он. `PGDATA_DIR`/`HF_CACHE_DIR`/`UPLOADS_DIR`/`BOOKS_DIR`, дефолты `./volumes/*` и `./books`. Named volumes в compose НЕ использовать
 - **`cli` зависит от healthy postgres** (`depends_on: postgres: condition: service_healthy`) — негативный сценарий «postgres лежит» воспроизводится через `docker compose run --rm --no-deps cli ...`
-- **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`)
+- **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `embed` → `uvicorn --factory embed_app:create_app` :8100, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`)
 - **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно — PyPI-колесо бинарно несовместимо с CPU-сборкой torch и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета — с одного CPU-индекса одной командой. Версии запинены; при осознанном апгрейде менять обе разом и проверять контейнерный тест-прогон. Дрейф ловится assert-слоем сразу после deps-установки
 - **Пре-бейк RapidOCR-моделей в образе** — rapidocr работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей при первом парсе PDF; Dockerfile конструирует `RapidOcrModel(... backend='torch')` на этапе сборки. Внутренний импорт `docling.models.stages.ocr.rapid_ocr_model` защищён пином `docling==2.113.0` — апгрейд docling осознанный (пин + ребилд + контейнерный прогон)
-- **api — только `GET /health`** — REST каталога/чата появится на этапе 4
+- **api теперь покрывает ingestion + read-API** — `GET /health`, `POST /documents`, `GET /jobs(/{id})`, `GET/DELETE /documents(/{id})`, `GET /search`; чат-API — этап C, веб-UI — этап D
 - **OCR-кириллица не поддержана** — bundled-наборы RapidOCR в docling: english/latin/chinese. Актуально только для сканов без текстового слоя; нужен другой движок (easyocr/tesseract) — дальний бэклог
 
 ## Non-Goals
 
-Не используется: ChromaDB, FAISS, LangChain, OpenAI API (внешний), веб-интерфейс (этап 4)
+Не используется: ChromaDB, FAISS, LangChain, OpenAI API (внешний), веб-интерфейс (этап 4-D)
 
 ## Git workflow
 

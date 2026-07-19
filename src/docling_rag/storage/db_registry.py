@@ -6,9 +6,9 @@ from docling_rag.storage.db_storage import _translate_db_errors
 
 
 def _row_to_entry(row) -> dict:
-    title, topic, tags, added_at = row
+    id_, title, topic, tags, added_at = row
     return {
-        "title": title, "topic": topic, "tags": list(tags),
+        "id": str(id_), "title": title, "topic": topic, "tags": list(tags),
         "added_at": added_at.isoformat(timespec="seconds"),
     }
 
@@ -48,7 +48,7 @@ class DBRegistry:
     def get(self, source_file: str) -> dict | None:
         with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             row = conn.execute(
-                "SELECT title, topic, tags, added_at FROM documents WHERE source_file = %s",
+                "SELECT id, title, topic, tags, added_at FROM documents WHERE source_file = %s",
                 (source_file,),
             ).fetchone()
         return _row_to_entry(row) if row else None
@@ -56,6 +56,19 @@ class DBRegistry:
     def load(self) -> dict[str, dict]:
         with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
             rows = conn.execute(
-                "SELECT source_file, title, topic, tags, added_at FROM documents ORDER BY source_file"
+                "SELECT source_file, id, title, topic, tags, added_at FROM documents ORDER BY source_file"
             ).fetchall()
         return {r[0]: _row_to_entry(r[1:]) for r in rows}
+
+    def get_by_id(self, doc_id: str) -> tuple[str, dict] | None:
+        import uuid as _uuid
+        try:
+            _uuid.UUID(str(doc_id))
+        except (ValueError, TypeError):
+            return None  # malformed -> не найдено (эндпоинт отдаст 404)
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
+            row = conn.execute(
+                "SELECT source_file, id, title, topic, tags, added_at"
+                " FROM documents WHERE id = %s::uuid", (doc_id,),
+            ).fetchone()
+        return (row[0], _row_to_entry(row[1:])) if row else None

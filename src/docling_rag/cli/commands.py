@@ -4,8 +4,13 @@ from pathlib import Path
 import click
 
 from docling_rag.cli.config_loader import load_config, ConfigError
-from docling_rag.core.embedder import Embedder
-from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
+from docling_rag.core.embedder import get_embedder
+from docling_rag.core.errors import (
+    EmbedServiceUnavailableError,
+    StorageError,
+    StorageSchemaMissingError,
+    StorageUnavailableError,
+)
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import SearchLogBackend, StorageBackend
@@ -46,6 +51,13 @@ def _db_unavailable(cfg: dict, e: Exception) -> click.ClickException:
 
 def _schema_missing() -> click.ClickException:
     return click.ClickException("Схема БД не инициализирована. Выполните: docling-rag init")
+
+
+def _embed_unavailable(e: Exception) -> click.ClickException:
+    return click.ClickException(
+        f"Сервис эмбеддингов недоступен: {e}\n"
+        "Запустите: docker compose up -d embed"
+    )
 
 
 @click.group()
@@ -89,7 +101,7 @@ def add(
         raise click.ClickException("Нет поддерживаемых файлов для индексации.")
 
     parser = Parser()
-    embedder = Embedder(model_name=cfg["embedding_model"])
+    embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
     try:
@@ -99,6 +111,8 @@ def add(
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        raise _embed_unavailable(e) from e
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
@@ -135,7 +149,7 @@ def search(
     if allowed_sources == set():
         click.echo("Нет документов с такими тегами/темой.")
         return
-    embedder = Embedder(model_name=cfg["embedding_model"])   # constructed AFTER the early return — lazy Embedder
+    embedder = get_embedder(cfg)   # создаётся ПОСЛЕ раннего return — ленивый эмбеддер
 
     try:
         results = run_search(query, embedder, storage, top_k=k, allowed_sources=allowed_sources)
@@ -147,6 +161,8 @@ def search(
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        raise _embed_unavailable(e) from e
 
     if not results:
         click.echo("Ничего не найдено.")
@@ -264,7 +280,7 @@ def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
     create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
     agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
-    embedder = Embedder(model_name=cfg["embedding_model"])
+    embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
     deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)
@@ -308,6 +324,10 @@ def ask(question: str, config: str | None, top_k: int | None) -> None:
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
         raise _schema_missing() from e
+    except EmbedServiceUnavailableError as e:
+        # ДО generic-хендлера: иначе _is_connection_error() находит вложенный
+        # httpx.ConnectError и ошибочно винит LM Studio, хотя лежит embed-сервис.
+        raise _embed_unavailable(e) from e
     except Exception as e:
         if _is_connection_error(e):
             raise click.ClickException(

@@ -1,7 +1,13 @@
 # core/protocols.py
-from typing import Protocol
+from typing import Protocol, Sequence
 import numpy as np
 from docling_rag.core.chunker import Chunk
+
+
+class EmbedderBackend(Protocol):
+    """Эмбеддер запросов/чанков: локальная модель или HTTP-клиент embed-сервиса."""
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray: ...
 
 
 class StorageBackend(Protocol):
@@ -75,7 +81,11 @@ class DocumentRegistryBackend(Protocol):
         ...
 
     def load(self) -> dict[str, dict]:
-        """Return full index as {source_file: {title, topic, tags, added_at}}."""
+        """Return full index as {source_file: {id, title, topic, tags, added_at}}."""
+        ...
+
+    def get_by_id(self, doc_id: str) -> tuple[str, dict] | None:
+        """Return (source_file, entry) for a surrogate uuid, or None (malformed/unknown)."""
         ...
 
 
@@ -105,6 +115,10 @@ class JobBackend(Protocol):
 
     def find_active_by_source(self, source_file: str) -> dict | None:
         """Return a queued/running job for this source, else None (dedup guard)."""
+        ...
+
+    def find_latest_by_source(self, source_file: str) -> dict | None:
+        """Return the newest job (any status) for this source, else None (catalog card)."""
         ...
 
     def claim_next(self) -> dict | None:

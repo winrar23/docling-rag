@@ -14,6 +14,10 @@ case "$1" in
         shift
         exec python -m docling_rag.worker "$@"
         ;;
+    embed)
+        shift
+        exec uvicorn --factory docling_rag.api.embed_app:create_app --host 0.0.0.0 --port 8100
+        ;;
     *)
         exec docling-rag "$@"
         ;;

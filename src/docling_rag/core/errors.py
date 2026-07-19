@@ -19,3 +19,7 @@ class UnsupportedFormatError(Exception):
 
 class LLMUnavailableError(Exception):
     """LLM endpoint is unreachable."""
+
+
+class EmbedServiceUnavailableError(Exception):
+    """Embed-сервис недоступен (connect/timeout/5xx). НЕ наследует StorageError."""

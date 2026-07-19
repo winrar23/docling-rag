@@ -17,6 +17,7 @@ _DEFAULTS = {
     "chunk_max_tokens": 512,
     "uploads_dir": "/uploads",
     "max_upload_mb": 100,
+    "embed_url": None,
 }
 
 

@@ -31,3 +31,11 @@ class Embedder:
             convert_to_numpy=True,
         )
         return embeddings.astype(np.float32, copy=False)
+
+
+def get_embedder(cfg: dict):
+    """Единственное место выбора embedding-бэкенда: embed_url -> HTTP, иначе локальная модель."""
+    if cfg.get("embed_url"):
+        from docling_rag.core.embed_client import HTTPEmbedder
+        return HTTPEmbedder(cfg["embed_url"])
+    return Embedder(model_name=cfg["embedding_model"])

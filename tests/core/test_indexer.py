@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
 
-from docling_rag.core.errors import StorageSchemaMissingError, StorageUnavailableError
+from docling_rag.core.errors import (
+    EmbedServiceUnavailableError,
+    StorageSchemaMissingError,
+    StorageUnavailableError,
+)
 from docling_rag.core.indexer import index_files, IndexReport
 from docling_rag.core.chunker import Chunk
 from tests.fakes import InMemoryRegistry, InMemoryStorage
@@ -86,6 +90,21 @@ def test_index_files_reraises_infrastructure_errors(tmp_path, infra_error):
     with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
         with pytest.raises(type(infra_error)):
             index_files([f], parser, embedder, storage, registry, "m")
+
+
+def test_index_files_reraises_embed_service_unavailable(tmp_path):
+    """Отказ embed-сервиса (embed_url в HTTP-режиме) — тоже инфраструктурная ошибка:
+    embed-сервис имеет `restart: unless-stopped` и может легитимно временно
+    отвалиться. Она не должна тонуть в report.errors (терминальный per-file fail),
+    а пробрасываться наверх, чтобы worker мог вернуть джобу через requeue_stale."""
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = MagicMock(), MagicMock()
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.side_effect = EmbedServiceUnavailableError("connection refused")
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
+        with pytest.raises(EmbedServiceUnavailableError):
+            index_files([f], parser, embedder, storage, registry, "m")
+    storage.append.assert_not_called()
 
 
 def test_index_files_reports_progress_steps(monkeypatch):

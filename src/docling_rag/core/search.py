@@ -4,13 +4,12 @@ from typing import Sequence
 
 import numpy as np
 
-from docling_rag.core.embedder import Embedder
-from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
+from docling_rag.core.protocols import DocumentRegistryBackend, EmbedderBackend, StorageBackend
 
 
 def run_search(
     query: str,
-    embedder: Embedder,
+    embedder: EmbedderBackend,
     storage: StorageBackend,
     top_k: int,
     allowed_sources: set[str] | None = None,

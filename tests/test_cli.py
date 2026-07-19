@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from docling_rag.cli import main
 from docling_rag.core.chunker import Chunk
-from docling_rag.core.errors import StorageError, StorageSchemaMissingError, StorageUnavailableError
+from docling_rag.core.errors import (
+    EmbedServiceUnavailableError,
+    StorageError,
+    StorageSchemaMissingError,
+    StorageUnavailableError,
+)
 from tests.fakes import InMemoryRegistry
 
 
@@ -45,7 +50,7 @@ def test_add_command_indexes_file(runner, tmp_path):
 
     with (
         patch("docling_rag.cli.commands.Parser") as MockParser,
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
@@ -75,7 +80,7 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
 
     with (
         patch("docling_rag.cli.commands.Parser") as MockParser,
-        patch("docling_rag.cli.commands.Embedder"),
+        patch("docling_rag.cli.commands.get_embedder"),
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.cli.commands.DBRegistry"),
     ):
@@ -103,7 +108,7 @@ def test_search_command_returns_results(runner):
     ]
 
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -118,7 +123,7 @@ def test_search_command_returns_results(runner):
 
 def test_search_command_empty_storage(runner):
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -131,7 +136,7 @@ def test_search_command_empty_storage(runner):
 
 
 def test_search_reports_corrupted_storage(runner):
-    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder, \
+    with patch("docling_rag.cli.commands.get_embedder") as MockEmbedder, \
          patch("docling_rag.cli.commands.DBStorage") as MockStorage:
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         MockStorage.return_value.search.side_effect = StorageError("2 vs 3")
@@ -148,7 +153,7 @@ def test_search_postgres_down_gives_helpful_error(runner, monkeypatch):
 
     monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
-    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder:
+    with patch("docling_rag.cli.commands.get_embedder") as MockEmbedder:
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         result = runner.invoke(main, ["search", "query"])
     assert result.exit_code == 1
@@ -168,12 +173,26 @@ def test_search_schema_missing_gives_helpful_error(runner, monkeypatch):
 
     monkeypatch.setattr("docling_rag.cli.commands.DBStorage", BoomStorage)
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
-    with patch("docling_rag.cli.commands.Embedder") as MockEmbedder:
+    with patch("docling_rag.cli.commands.get_embedder") as MockEmbedder:
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         result = runner.invoke(main, ["search", "query"])
     assert result.exit_code == 1
     assert "Схема БД не инициализирована" in result.output
     assert "docling-rag init" in result.output
+
+
+def test_search_embed_unavailable_gives_helpful_error(runner):
+    """Embed-сервис лежит (restart: unless-stopped может временно уронить его) —
+    CLI должен явно назвать причину, а не выкинуть сырой traceback."""
+    with (
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.DBStorage") as MockStorage,
+    ):
+        MockEmbedder.return_value.embed.side_effect = EmbedServiceUnavailableError("connection refused")
+        result = runner.invoke(main, ["search", "query"])
+    assert result.exit_code == 1
+    assert "эмбеддинг" in result.output.lower()
+    assert "docker compose up -d embed" in result.output
 
 
 def test_list_postgres_down_gives_helpful_error(runner, monkeypatch):
@@ -205,7 +224,7 @@ def test_add_postgres_down_gives_helpful_error(runner, tmp_path, monkeypatch):
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
     ):
         mock_chunk = MagicMock()
@@ -216,6 +235,29 @@ def test_add_postgres_down_gives_helpful_error(runner, tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "PostgreSQL недоступен" in result.output
     assert "docker compose up -d postgres" in result.output
+    assert "Ошибка при обработке" not in result.output  # не per-file отчёт, а fail-fast
+
+
+def test_add_embed_unavailable_gives_helpful_error(runner, tmp_path):
+    """Embed-сервис лежит при add: инфраструктурная ошибка не должна тонуть в
+    per-file отчёте indexer'а — fail-fast с подсказкой, как при StorageUnavailableError."""
+    test_doc = tmp_path / "down.md"
+    test_doc.write_text("# T\n\ntext\n")
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.DBStorage"),
+        patch("docling_rag.cli.commands.DBRegistry"),
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "t"
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.side_effect = EmbedServiceUnavailableError("connection refused")
+        result = runner.invoke(main, ["add", str(test_doc)])
+    assert result.exit_code == 1
+    assert "эмбеддинг" in result.output.lower()
+    assert "docker compose up -d embed" in result.output
     assert "Ошибка при обработке" not in result.output  # не per-file отчёт, а fail-fast
 
 
@@ -231,7 +273,7 @@ def test_add_schema_missing_gives_helpful_error(runner, tmp_path, monkeypatch):
     monkeypatch.setattr("docling_rag.cli.commands.DBRegistry", lambda dsn: InMemoryRegistry())
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
     ):
         mock_chunk = MagicMock()
@@ -258,7 +300,7 @@ def test_search_does_not_crash_when_log_write_fails(runner):
         def log(self, query, top_score): raise StorageUnavailableError("connection refused")
 
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.cli.commands.DBSearchLog", BoomLog),
     ):
@@ -275,7 +317,7 @@ def test_search_does_not_crash_when_log_write_fails(runner):
 def test_search_logs_query_and_top_score(runner, hermetic_search_log):
     """Успешный поиск пишет запрос и score лучшего попадания в лог."""
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -290,7 +332,7 @@ def test_search_logs_query_and_top_score(runner, hermetic_search_log):
 def test_search_without_results_does_not_log(runner, hermetic_search_log):
     """Логировать нечего: top_score берётся из results[0] — пустой поиск не пишет строку."""
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -309,7 +351,7 @@ def test_add_command_calls_registry_upsert(runner, tmp_path):
 
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
@@ -343,7 +385,7 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
 
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
@@ -379,7 +421,7 @@ def test_add_passes_chunk_max_tokens_from_config(runner, tmp_path, hermetic_conf
 
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry"),
@@ -406,7 +448,7 @@ def test_re_add_same_file_does_not_duplicate(runner, tmp_path):
     test_doc.write_text("# T\n\ntext\n")
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry"),
@@ -426,7 +468,7 @@ def test_add_uses_resolved_path_as_source(runner, tmp_path):
     test_doc.write_text("# T\n\ntext\n")
     with (
         patch("docling_rag.cli.commands.Parser"),
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
@@ -443,7 +485,7 @@ def test_add_uses_resolved_path_as_source(runner, tmp_path):
 def test_search_with_tag_filter_passes_allowed_sources(runner):
     """search --tag filters to docs that have that tag."""
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
     ):
@@ -470,7 +512,7 @@ def test_search_with_tag_filter_passes_allowed_sources(runner):
 def test_search_with_topic_filter_case_insensitive(runner):
     """search --topic filters case-insensitively."""
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
     ):
@@ -498,7 +540,7 @@ def test_search_with_topic_filter_case_insensitive(runner):
 def test_search_filter_no_matching_docs_exits_gracefully(runner):
     """search --tag with no matching docs prints message and does not call storage."""
     with (
-        patch("docling_rag.cli.commands.Embedder"),
+        patch("docling_rag.cli.commands.get_embedder"),
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
     ):
@@ -570,7 +612,7 @@ def test_search_shows_headings_in_output(runner):
     ]
 
     with (
-        patch("docling_rag.cli.commands.Embedder") as MockEmbedder,
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
     ):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
@@ -646,6 +688,29 @@ def test_ask_handles_connection_error(runner):
             result = runner.invoke(main, ["ask", "test"])
     assert result.exit_code != 0
     assert "подключиться" in result.output.lower() or "connection" in result.output.lower() or "lm studio" in result.output.lower()
+
+
+def test_ask_embed_unavailable_gives_helpful_error(runner):
+    """Regression: до фикса EmbedServiceUnavailableError доходила до generic-хендлера,
+    _is_connection_error() находила вложенный httpx.ConnectError и ошибочно винила
+    LM Studio, хотя лежал embed-сервис."""
+    with patch("docling_rag.cli.commands.load_config", return_value={
+        "agent_enabled": True,
+        "llm_base_url": "http://127.0.0.1:1234/v1",
+        "llm_api_key": "lm-studio",
+        "llm_model": "test-model",
+        "agent_top_k": 5,
+        "embedding_model": "all-MiniLM-L6-v2",
+    }):
+        with patch(
+            "docling_rag.cli.commands._create_and_run_agent",
+            side_effect=EmbedServiceUnavailableError("connection refused"),
+        ):
+            result = runner.invoke(main, ["ask", "test"])
+    assert result.exit_code != 0
+    assert "эмбеддинг" in result.output.lower()
+    assert "docker compose up -d embed" in result.output
+    assert "lm studio" not in result.output.lower()
 
 
 def test_add_exits_nonzero_when_no_supported_files(runner, tmp_path):
