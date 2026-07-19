@@ -1,6 +1,7 @@
 # Конфиг внутри контейнера: хранилище — postgres (pgvector), LM Studio на хосте.
 # database_url — фолбэк для `docker run` без compose; в compose env DATABASE_URL приоритетнее.
 embedding_model: deepvk/USER-bge-m3
+embed_url: http://embed:8100
 chunk_max_tokens: 512
 top_k_results: 5
 database_url: postgresql://docling:docling@postgres:5432/docling_rag

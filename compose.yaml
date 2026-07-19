@@ -17,6 +17,21 @@ services:
       timeout: 3s
       retries: 10
 
+  # embed: единственный процесс с моделью USER-bge-m3, api/worker/cli ходят к нему по HTTP
+  embed:
+    build: .
+    image: docling-rag:local
+    command: ["embed"]
+    restart: unless-stopped
+    volumes:
+      - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+
   api:
     build: .
     image: docling-rag:local
@@ -29,6 +44,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
+        condition: service_healthy
+      embed:
         condition: service_healthy
     volumes:
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
@@ -51,6 +68,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      embed:
+        condition: service_healthy
     volumes:
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
       - ${UPLOADS_DIR:-./volumes/uploads}:/uploads
@@ -70,6 +89,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      embed:
+        condition: service_healthy
     volumes:
       - ./src:/app/src
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
@@ -86,6 +107,8 @@ services:
       - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
+        condition: service_healthy
+      embed:
         condition: service_healthy
     volumes:
       - ${HF_CACHE_DIR:-./volumes/hf-cache}:/hf-cache
