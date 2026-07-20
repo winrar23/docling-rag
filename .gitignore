@@ -17,11 +17,8 @@ env/
 # uv
 .python-version
 
-# Data (не коммитим индекс и документы)
-data/embeddings.npy
-data/metadata.json
-data/doc_index.json
-data/documents/
+# Data
+data/
 
 # Docs (локальная документация, не публикуем)
 docs/
@@ -51,6 +48,6 @@ logs/
 .coverage
 htmlcov/
 
-# Docker volumes (дефолтные пути bind-mounts) и книги пользователя
+# Docker volumes
 volumes/
 books/
