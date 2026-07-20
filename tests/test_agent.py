@@ -131,3 +131,88 @@ def test_dynamic_instructions_list_documents():
 def test_build_lmstudio_model_targets_base_url():
     model = build_lmstudio_model("m", "http://127.0.0.1:1234/v1", "key")
     assert type(model).__name__ == "OpenAIChatModel"
+
+
+def test_agent_deps_new_fields_default():
+    """Обратная совместимость: старый 4-арговый конструктор работает, новые поля дефолтны."""
+    deps = AgentDeps(embedder=MagicMock(), storage=MagicMock(), registry=MagicMock(), top_k=5)
+    assert deps.search_log is None
+    assert deps.sources == []
+
+
+def test_agent_deps_sources_not_shared_between_instances():
+    """default_factory: аккумулятор не разделяется между разными deps (классическая ловушка mutable default)."""
+    a = AgentDeps(embedder=MagicMock(), storage=MagicMock(), registry=MagicMock(), top_k=5)
+    b = AgentDeps(embedder=MagicMock(), storage=MagicMock(), registry=MagicMock(), top_k=5)
+    a.sources.append("x")
+    assert b.sources == []
+
+
+def test_tool_accumulates_sources():
+    """Tool складывает сырые (meta, score) в deps.sources — основа поля sources ответа /chat."""
+    deps = _seeded_deps()
+    create_agent(TestModel()).run_sync("What is Data Vault?", deps=deps)
+    assert len(deps.sources) >= 1
+    meta, score = deps.sources[0]
+    assert meta["source_file"] == "dv.pdf"
+    assert meta["page_number"] == 42
+    assert isinstance(float(score), float)
+
+
+def test_tool_logs_search_query_and_top_score():
+    """Закрытие TODO п.5: агентский поиск пишется в search_log (query из tool-вызова, score первого результата)."""
+    from tests.fakes import InMemorySearchLog
+    deps = _seeded_deps()
+    deps.search_log = InMemorySearchLog()
+    create_agent(TestModel()).run_sync("What is Data Vault?", deps=deps)
+    assert len(deps.search_log.entries) == 1
+    query, top_score = deps.search_log.entries[0]
+    assert isinstance(query, str) and query
+    assert top_score == pytest.approx(float(deps.sources[0][1]))
+
+
+def test_tool_does_not_log_empty_results():
+    """Контракт как у CLI search: пустая выдача — записи в лог нет."""
+    from tests.fakes import InMemorySearchLog
+
+    class _EmptySearchStorage(InMemoryStorage):
+        def search(self, query_embedding, top_k, allowed_sources=None):
+            return []
+
+    deps = _seeded_deps()
+    storage = _EmptySearchStorage()
+    chunk = Chunk(text="t", source_file="dv.pdf", chunk_id=0, page_number=1,
+                  element_type="text", headings=[], context_text="t")
+    storage.append([chunk], np.ones((1, 4), dtype=np.float32))
+    deps.storage = storage
+    deps.search_log = InMemorySearchLog()
+    create_agent(TestModel()).run_sync("q", deps=deps)
+    assert deps.search_log.entries == []
+    assert deps.sources == []
+
+
+def test_tool_log_failure_does_not_crash_run(capsys):
+    """Отказ лога (БД лежит) не роняет run — предупреждение в stderr."""
+
+    class _BoomLog:
+        def log(self, query, top_score):
+            raise RuntimeError("db down")
+
+    deps = _seeded_deps()
+    deps.search_log = _BoomLog()
+    result = create_agent(TestModel()).run_sync("What is Data Vault?", deps=deps)
+    assert isinstance(result.output, str)
+    assert "лог поиска не записан" in capsys.readouterr().err
+
+
+def test_static_instructions_survive_message_history():
+    """КРИТИЧНО: при непустом message_history pydantic-ai НЕ отправляет system_prompt=,
+    но отправляет instructions= — SYSTEM_PROMPT обязан доходить до модели в чате с историей."""
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+    hist = [ModelRequest(parts=[UserPromptPart(content="прошлый вопрос")]),
+            ModelResponse(parts=[TextPart(content="прошлый ответ")])]
+    result = create_agent(TestModel()).run_sync("новый вопрос", deps=_seeded_deps(), message_history=hist)
+    reqs = [m for m in result.all_messages() if isinstance(m, ModelRequest)]
+    instr = next((m.instructions for m in reqs if getattr(m, "instructions", None)), "") or ""
+    assert "search_documents" in instr  # маркер SYSTEM_PROMPT
+    assert "DV Book" in instr           # динамический список документов тоже на месте
