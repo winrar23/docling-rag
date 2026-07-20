@@ -218,6 +218,28 @@ def test_static_instructions_survive_message_history():
     assert "DV Book" in instr           # динамический список документов тоже на месте
 
 
+def test_tool_accumulates_sources_across_multiple_calls():
+    """Spec §6: sources накапливаются при нескольких tool-вызовах, дубли не схлопываются."""
+    from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    calls = {"n": 0}
+
+    def scripted(messages, info):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ModelResponse(parts=[ToolCallPart(tool_name="search_documents", args={"query": "hubs"})])
+        if calls["n"] == 2:
+            return ModelResponse(parts=[ToolCallPart(tool_name="search_documents", args={"query": "satellites"})])
+        return ModelResponse(parts=[TextPart(content="готово")])
+
+    deps = _seeded_deps()
+    create_agent(FunctionModel(scripted)).run_sync("вопрос", deps=deps)
+    assert len(deps.sources) == 2  # top_k=3, но в сеяном хранилище 1 chunk → по 1 результату на вызов
+    assert deps.sources[0][0]["source_file"] == "dv.pdf"
+    assert deps.sources[1][0]["source_file"] == "dv.pdf"  # дубль не схлопнут
+
+
 def test_build_lmstudio_model_passes_timeout_to_http_client():
     """timeout_sec доезжает до httpx-клиента провайдера (отсечка зависшего LM Studio)."""
     from unittest.mock import patch as _patch

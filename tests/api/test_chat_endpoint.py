@@ -132,3 +132,24 @@ def test_chat_llm_timeout_504(client):
     app.dependency_overrides[get_chat_model] = lambda: FunctionModel(hang)
     r = c.post("/chat", json={"message": "q"})
     assert r.status_code == 504
+
+
+def test_chat_storage_error_not_misattributed_to_llm(client):
+    """Доменная ошибка хранилища (в цепочке есть ConnectionError) должна дать 503 postgres,
+    а не 503 LM Studio — проверка порядка except-веток эндпоинта."""
+    from docling_rag.core.errors import StorageUnavailableError
+
+    c, registry, storage, _ = client
+    _seed(registry, storage)
+
+    def _broken_search(query_embedding, top_k=5, allowed_sources=None):
+        try:
+            raise ConnectionError("connection refused")
+        except ConnectionError as e:
+            raise StorageUnavailableError("PostgreSQL недоступен") from e
+
+    storage.search = _broken_search
+    r = c.post("/chat", json={"message": "вопрос"})
+    assert r.status_code == 503
+    assert "PostgreSQL" in r.json()["detail"]
+    assert "LM Studio" not in r.json()["detail"]

@@ -1,4 +1,7 @@
 # core/errors.py
+from typing import Iterator
+
+
 class StorageError(Exception):
     """Storage is corrupted or inconsistent."""
 
@@ -25,7 +28,7 @@ class EmbedServiceUnavailableError(Exception):
     """Embed-сервис недоступен (connect/timeout/5xx). НЕ наследует StorageError."""
 
 
-def cause_chain(e: BaseException):
+def cause_chain(e: BaseException) -> Iterator[BaseException]:
     """Yield e и всю цепочку __cause__/__context__ (с защитой от циклов).
 
     httpx/openai/psycopg заворачивают исходную ошибку в несколько слоёв —
