@@ -1,3 +1,4 @@
+import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -52,7 +53,10 @@ def _get_chunker(embedding_model: str, max_tokens: int) -> HybridChunker:
     8192 — авто-лимит дал бы чанки, убивающие гранулярность поиска.
     """
     model_id = embedding_model if "/" in embedding_model else f"sentence-transformers/{embedding_model}"
-    tokenizer = HuggingFaceTokenizer.from_pretrained(model_id, max_tokens=max_tokens)
+    # model_max_length=sys.maxsize: токенайзер здесь только СЧИТАЕТ токены (лимит чанков —
+    # max_tokens), но transformers сравнивает длину с model_max_length из конфига модели и
+    # шумит "Token indices sequence length is longer than ..." на секциях длиннее окна.
+    tokenizer = HuggingFaceTokenizer.from_pretrained(model_id, max_tokens=max_tokens, model_max_length=sys.maxsize)
     return HybridChunker(tokenizer=tokenizer)
 
 

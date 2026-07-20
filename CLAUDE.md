@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). Остаток этапа 4 — C (chat-API) и D (веб-UI). 178 fast + 40 integration + 1 slow тест, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). Остаток этапа 4 — C (chat-API) и D (веб-UI). 181 fast + 40 integration + 1 slow тест, все зелёные.
 
 ## Stack
 
@@ -39,7 +39,7 @@ curl -s -X DELETE http://localhost:8000/documents/<id>       # {deleted, chunks,
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,agent,api]"
 
-python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 178 passed, 41 deselected (герметичны, postgres НЕ нужен)
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 181 passed, 41 deselected (герметичны, postgres НЕ нужен)
 docker compose up -d postgres                                # прекондишн для integration
 python3 -m pytest tests/ -m integration                      # 39 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 ```
@@ -76,7 +76,7 @@ docling-rag/
 │       ├── db_registry.py   # documents: title/topic/tags/added_at + id (DocumentRegistryBackend impl); get_by_id(doc_id) для REST-адресации
 │       ├── db_search_log.py # searches: query/top_score/searched_at (SearchLogBackend impl)
 │       └── db_jobs.py       # jobs: очередь фоновой индексации (JobBackend impl); claim_next через FOR UPDATE SKIP LOCKED
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 178 fast + 40 integration + 1 slow
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 181 fast + 40 integration + 1 slow
 ├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/embed/test/cli
 ├── compose.yaml             # postgres + embed + api + worker + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
 ├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
@@ -113,6 +113,7 @@ docling-rag/
 - **Имя модели с `/` (org) используется как есть; без `/` — приклеивается `sentence-transformers/`** — `core/chunker.py::_get_chunker()` резолвит `model_id` для `HuggingFaceTokenizer.from_pretrained`
 - **`chunk_max_tokens: 512` — явный ключ конфига, не авто** — у bge-m3 окно 8192 токенов; авто-лимит из tokenizer'а дал бы чанки, убивающие гранулярность поиска. Прокидывается `cli/commands.py::add` → `index_files(..., chunk_max_tokens=...)` → `chunk_document(..., max_tokens=...)`
 - **HybridChunker кеширован per (embedding_model, max_tokens)** — `@lru_cache(maxsize=4)` на `_get_chunker(embedding_model, max_tokens)`; в тестах чистить `_get_chunker.cache_clear()`
+- **Токенайзер чанкера создаётся с `model_max_length=sys.maxsize`** — он только СЧИТАЕТ токены (лимит чанков — явный `max_tokens`), но transformers сравнивает длину с `model_max_length` из конфига модели и шумит «Token indices sequence length is longer than ...» на секциях длиннее окна; ids в модель не идут, предупреждение ложное — глушится на источнике
 - **Одна embedding-модель для индексации и поиска** — нельзя менять модель без полной переиндексации (и правки `vector(N)` в DDL)
 - **context_text vs text** — `chunk.context_text` = headings + text (используется для эмбеддингов); `chunk.text` = чистый текст (хранится и отображается в поиске)
 - **Таблицы и code-блоки** — HybridChunker сохраняет их как атомарные chunks (element_type = "table" или "code")
@@ -125,7 +126,7 @@ docling-rag/
 - **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
 - **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
 - **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
-- **Счётчики** — 178 fast (41 deselected), 40 integration, 1 slow
+- **Счётчики** — 181 fast (41 deselected), 40 integration, 1 slow
 
 ### CLI-контракты
 

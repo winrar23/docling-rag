@@ -53,3 +53,15 @@ def test_embed_passes_batch_size():
     e._dim = 4
     e.embed(["a", "b"], batch_size=128)
     assert e._model.encode.call_args.kwargs["batch_size"] == 128
+
+
+def test_embedder_init_does_not_use_deprecated_dimension_api():
+    """sentence-transformers 5.6 переименовал get_sentence_embedding_dimension →
+    get_embedding_dimension; старое имя даёт FutureWarning на каждом создании Embedder."""
+    import warnings
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        embedder = Embedder(model_name="all-MiniLM-L6-v2")
+    assert embedder._dim == 384
+    deprecated = [w for w in caught if "get_sentence_embedding_dimension" in str(w.message)]
+    assert not deprecated, f"deprecated API used: {deprecated[0].message}"

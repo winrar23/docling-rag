@@ -1,3 +1,5 @@
+import sys
+
 from docling_rag.core.chunker import Chunk, _get_chunker
 
 
@@ -153,14 +155,14 @@ class TestChunkerModelResolution:
         with patch("docling_rag.core.chunker.HybridChunker"), \
              patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained") as m:
             _get_chunker("deepvk/USER-bge-m3", 512)
-        m.assert_called_once_with("deepvk/USER-bge-m3", max_tokens=512)
+        m.assert_called_once_with("deepvk/USER-bge-m3", max_tokens=512, model_max_length=sys.maxsize)
 
     def test_bare_model_name_gets_sentence_transformers_prefix(self):
         _get_chunker.cache_clear()
         with patch("docling_rag.core.chunker.HybridChunker"), \
              patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained") as m:
             _get_chunker("all-MiniLM-L6-v2", 256)
-        m.assert_called_once_with("sentence-transformers/all-MiniLM-L6-v2", max_tokens=256)
+        m.assert_called_once_with("sentence-transformers/all-MiniLM-L6-v2", max_tokens=256, model_max_length=sys.maxsize)
 
     def test_cache_keyed_by_model_and_max_tokens(self):
         # side_effect=fresh MagicMock() per call: the default mocked-class .return_value
@@ -174,3 +176,28 @@ class TestChunkerModelResolution:
             b = _get_chunker("all-MiniLM-L6-v2", 512)
             c = _get_chunker("all-MiniLM-L6-v2", 256)
         assert a is c and a is not b
+
+
+class TestTokenizerModelMaxLength:
+    """Подсчёт токенов на длинных текстах не должен вызывать предупреждение transformers
+    "Token indices sequence length is longer than ..." — токенайзер чанкера только считает
+    токены (лимит чанков задаёт max_tokens), в модель эти ids не идут."""
+
+    def test_from_pretrained_gets_unbounded_model_max_length(self):
+        _get_chunker.cache_clear()
+        with patch("docling_rag.core.chunker.HybridChunker"), \
+             patch("docling_rag.core.chunker.HuggingFaceTokenizer.from_pretrained") as m:
+            _get_chunker("deepvk/USER-bge-m3", 512)
+        assert m.call_args.kwargs["model_max_length"] == sys.maxsize
+
+    def test_counting_beyond_model_window_keeps_chunk_limit(self):
+        # Реальный токенайзер MiniLM (кеш HF уже прогрет embedder-тестами):
+        # длина > 512 считается без предупреждения, а лимит чанков остаётся 512.
+        _get_chunker.cache_clear()
+        chunker = _get_chunker("all-MiniLM-L6-v2", 512)
+        tok = chunker.tokenizer
+        n = tok.count_tokens("token soup " * 700)
+        assert n > 512
+        assert tok.tokenizer.model_max_length > n  # условие предупреждения не выполняется
+        assert tok.max_tokens == 512
+        _get_chunker.cache_clear()

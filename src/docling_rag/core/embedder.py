@@ -10,7 +10,7 @@ class Embedder:
 
     def __init__(self, model_name: str = "deepvk/USER-bge-m3") -> None:
         self._model = SentenceTransformer(model_name)
-        self._dim: int = self._model.get_sentence_embedding_dimension()
+        self._dim: int = self._model.get_embedding_dimension()
 
     def embed(self, texts: list[str], batch_size: int = 32) -> np.ndarray:
         """
