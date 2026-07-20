@@ -10,6 +10,7 @@ from docling_rag.core.errors import (
     StorageError,
     StorageSchemaMissingError,
     StorageUnavailableError,
+    cause_chain,
 )
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
@@ -260,14 +261,7 @@ def _is_connection_error(e: BaseException) -> bool:
         conn_types: tuple[type, ...] = (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout)
     except ImportError:
         conn_types = (ConnectionError,)
-    seen: set[int] = set()
-    cur: BaseException | None = e
-    while cur is not None and id(cur) not in seen:
-        if isinstance(cur, conn_types):
-            return True
-        seen.add(id(cur))
-        cur = cur.__cause__ or cur.__context__
-    return False
+    return any(isinstance(cur, conn_types) for cur in cause_chain(e))
 
 
 def _import_agent_module():

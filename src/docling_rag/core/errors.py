@@ -23,3 +23,18 @@ class LLMUnavailableError(Exception):
 
 class EmbedServiceUnavailableError(Exception):
     """Embed-сервис недоступен (connect/timeout/5xx). НЕ наследует StorageError."""
+
+
+def cause_chain(e: BaseException):
+    """Yield e и всю цепочку __cause__/__context__ (с защитой от циклов).
+
+    httpx/openai/psycopg заворачивают исходную ошибку в несколько слоёв —
+    потребители ищут в цепочке конкретные типы через isinstance
+    (cli: _is_connection_error; api: классификация connect/timeout в /chat).
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        yield cur
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
