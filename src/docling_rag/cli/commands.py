@@ -277,7 +277,8 @@ def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
-    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)
+    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k,
+                     search_log=DBSearchLog(cfg["database_url"]))
     result = agent.run_sync(question, deps=deps)
     return result.output
 
