@@ -1,5 +1,4 @@
-# api/app.py — этап 4-A (приём книг, ingestion) + 4-B (каталог документов, поиск).
-# Чат — этап C.
+# api/app.py — этап 4-A (ingestion) + 4-B (каталог, поиск) + 4-C (чат).
 import os
 import sys
 from datetime import datetime, timezone
@@ -9,6 +8,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from docling_rag.cli.config_loader import load_config
 from docling_rag.core.embedder import get_embedder
@@ -16,6 +16,7 @@ from docling_rag.core.errors import (
     EmbedServiceUnavailableError,
     StorageSchemaMissingError,
     StorageUnavailableError,
+    cause_chain,
 )
 from docling_rag.core.parser import SUPPORTED_EXTENSIONS
 from docling_rag.core.protocols import (
@@ -78,6 +79,110 @@ def get_search_embedder(settings: dict = Depends(get_settings)) -> EmbedderBacke
 
 def get_search_log(settings: dict = Depends(get_settings)) -> SearchLogBackend:
     return DBSearchLog(settings["database_url"])
+
+
+# --- Chat (этап 4-C) ---------------------------------------------------------
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1)
+    history: list[ChatTurn] = []
+
+
+class ChatSource(BaseModel):
+    file: str          # basename — как в текстовых цитатах агента
+    page: int
+    headings: list[str]
+    score: float
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[ChatSource]
+
+
+def _import_agent():
+    """Ленивый импорт .[agent]: модуль api обязан импортироваться без pydantic-ai."""
+    from docling_rag.core.agent import AgentDeps, build_lmstudio_model, create_agent
+    return create_agent, AgentDeps, build_lmstudio_model
+
+
+def get_chat_model(settings: dict = Depends(get_settings)):
+    if not settings.get("agent_enabled"):
+        raise HTTPException(status_code=503,
+                            detail="Агент выключен: agent_enabled: false в конфиге")
+    try:
+        _, _, build_model = _import_agent()
+    except ImportError:
+        raise HTTPException(status_code=503,
+                            detail="pydantic-ai не установлен (extra .[agent])")
+    return build_model(settings["llm_model"], settings["llm_base_url"], settings["llm_api_key"],
+                       timeout_sec=float(settings.get("llm_timeout_sec", 120)))
+
+
+def _to_message_history(history: list[ChatTurn]) -> list:
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+    msgs: list = []
+    for turn in history:
+        if turn.role == "user":
+            msgs.append(ModelRequest(parts=[UserPromptPart(content=turn.content)]))
+        else:
+            msgs.append(ModelResponse(parts=[TextPart(content=turn.content)]))
+    return msgs
+
+
+def _has_in_chain(e: BaseException, types: tuple[type, ...]) -> bool:
+    return any(isinstance(c, types) for c in cause_chain(e))
+
+
+@app.post("/chat")
+def chat(req: ChatRequest,  # sync def → threadpool: run_sync и sync psycopg/embedder внутри tool'а не блокируют event loop
+         settings: dict = Depends(get_settings),
+         registry: DocumentRegistryBackend = Depends(get_registry),
+         storage: StorageBackend = Depends(get_storage),
+         embedder: EmbedderBackend = Depends(get_search_embedder),
+         search_log: SearchLogBackend = Depends(get_search_log),
+         model=Depends(get_chat_model)) -> ChatResponse:
+    import httpx  # доступен: get_chat_model уже гарантировал .[agent]
+    create_agent, AgentDeps, _ = _import_agent()
+    agent = create_agent(model)
+    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry,
+                     top_k=settings["agent_top_k"], search_log=search_log)
+    try:
+        result = agent.run_sync(req.message,
+                                message_history=_to_message_history(req.history),
+                                deps=deps)
+    except FileNotFoundError:
+        # пустое хранилище: у HTTP нет exit-код контракта CLI (как GET /search → пустые results)
+        return ChatResponse(answer="Хранилище пустое. Документов нет.", sources=[])
+    except (StorageUnavailableError, StorageSchemaMissingError, EmbedServiceUnavailableError):
+        # ДО connect-эвристики: цепочка psycopg/embed-ошибок тоже содержит ConnectionError,
+        # иначе виноватым ошибочно назначался бы LM Studio (тот же порядок, что в cli ask)
+        raise  # app-уровневые 503-хендлеры
+    except Exception as e:
+        if _has_in_chain(e, (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout)):
+            raise HTTPException(
+                status_code=503,
+                detail=f"LLM недоступна по адресу {settings['llm_base_url']} — запустите LM Studio",
+            ) from e
+        if _has_in_chain(e, (httpx.TimeoutException,)):
+            raise HTTPException(
+                status_code=504,
+                detail=f"LLM не ответила за {settings.get('llm_timeout_sec', 120)} секунд",
+            ) from e
+        raise
+    return ChatResponse(
+        answer=result.output,
+        sources=[ChatSource(file=Path(meta["source_file"]).name,
+                            page=meta["page_number"],
+                            headings=meta["headings"] or [],
+                            score=float(score))
+                 for meta, score in deps.sources],
+    )
 
 
 @app.get("/health")
