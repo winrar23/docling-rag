@@ -4,6 +4,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -88,9 +89,15 @@ def _build_doc_list(registry: DocumentRegistryBackend) -> str:
     return "\n".join(lines)
 
 
-def build_lmstudio_model(model_name: str, base_url: str, api_key: str) -> OpenAIChatModel:
-    """LM Studio speaks Chat Completions — keep the explicit OpenAIChatModel (v2: 'openai:' prefix means Responses API)."""
-    return OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=base_url, api_key=api_key))
+def build_lmstudio_model(model_name: str, base_url: str, api_key: str,
+                         timeout_sec: float = 120.0) -> OpenAIChatModel:
+    """LM Studio speaks Chat Completions — keep the explicit OpenAIChatModel (v2: 'openai:' prefix means Responses API).
+
+    timeout_sec — отсечка ожидания LLM (httpx), чтобы зависший LM Studio не держал запрос вечно.
+    """
+    provider = OpenAIProvider(base_url=base_url, api_key=api_key,
+                              http_client=httpx.AsyncClient(timeout=timeout_sec))
+    return OpenAIChatModel(model_name, provider=provider)
 
 
 def create_agent(model) -> Agent:

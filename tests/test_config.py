@@ -73,3 +73,8 @@ def test_database_url_env_overrides_config(tmp_path, monkeypatch):
 def test_database_url_defaults_and_config(tmp_path, monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     assert "127.0.0.1:5432/docling_rag" in load_config(tmp_path / "nope.yaml")["database_url"]
+
+
+def test_defaults_include_llm_timeout():
+    from docling_rag.cli.config_loader import _DEFAULTS
+    assert _DEFAULTS["llm_timeout_sec"] == 120

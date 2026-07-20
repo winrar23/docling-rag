@@ -216,3 +216,13 @@ def test_static_instructions_survive_message_history():
     instr = next((m.instructions for m in reqs if getattr(m, "instructions", None)), "") or ""
     assert "search_documents" in instr  # маркер SYSTEM_PROMPT
     assert "DV Book" in instr           # динамический список документов тоже на месте
+
+
+def test_build_lmstudio_model_passes_timeout_to_http_client():
+    """timeout_sec доезжает до httpx-клиента провайдера (отсечка зависшего LM Studio)."""
+    from unittest.mock import patch as _patch
+    with _patch("docling_rag.core.agent.OpenAIProvider") as MockProvider, \
+         _patch("docling_rag.core.agent.OpenAIChatModel"):
+        build_lmstudio_model("m", "http://u", "k", timeout_sec=7.0)
+    http_client = MockProvider.call_args.kwargs["http_client"]
+    assert http_client.timeout.read == 7.0

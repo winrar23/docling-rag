@@ -273,7 +273,10 @@ def _import_agent_module():
 def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
     create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
-    agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
+    agent = create_agent(build_lmstudio_model(
+        cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"],
+        timeout_sec=float(cfg.get("llm_timeout_sec", 120)),
+    ))
     embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
