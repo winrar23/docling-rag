@@ -183,16 +183,8 @@ docling-rag/
 ## Git workflow
 
 - **`main`** — стабильная ветка, всегда рабочая
-- **`dev`** — ветка для экспериментальных фич, worktree в `.claude/worktrees/dev/`
-- Новые фичи разрабатываются в `dev`, после стабилизации мёрджатся в `main`
-
-```bash
-# Переключиться в dev worktree
-cd .claude/worktrees/dev
-
-# Список worktrees
-git worktree list
-```
+- Фичи разрабатываются в ветках `feat/*` / `fix/*` от `main`, после ревью и зелёных тестов мёрджатся в `main`
+- Worktree создаются ad-hoc при необходимости изоляции (`git worktree add ...`); постоянных worktree нет
 
 ## Claude Code Skills
 
