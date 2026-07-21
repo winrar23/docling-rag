@@ -11,6 +11,7 @@ _HERMETIC_DEFAULTS = {
     "llm_api_key": "lm-studio",
     "llm_model": "local-model",
     "agent_top_k": 5,
+    "llm_timeout_sec": 120,
     # порт 1 — заведомо несоединяемый: юнит-тест, случайно дошедший до реального
     # соединения с БД, падает быстро и громко вместо зависания/долгого таймаута.
     "database_url": "postgresql://test:test@127.0.0.1:1/test",

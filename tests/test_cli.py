@@ -776,3 +776,35 @@ class TestDeleteCommand:
         assert result.exit_code == 1
         assert "не найден" in result.output
         assert "docling-rag list" in result.output
+
+
+def test_create_and_run_agent_passes_search_log(hermetic_search_log):
+    """Агентские поиски должны логироваться: deps получает search_log (TODO п.5).
+
+    hermetic_search_log (autouse) патчит commands.DBSearchLog на фабрику in-memory
+    фейка и возвращает сам фейк — проверяем тождество объекта.
+    """
+    from docling_rag.cli import commands
+
+    captured = {}
+
+    class CaptureDeps:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    fake_agent = MagicMock()
+    fake_agent.run_sync.return_value.output = "ответ"
+    cfg = {"llm_model": "m", "llm_base_url": "http://u", "llm_api_key": "k",
+           "llm_timeout_sec": 120, "database_url": "postgresql://test:test@127.0.0.1:1/test",
+           "embedding_model": "all-MiniLM-L6-v2", "embed_url": None}
+
+    with patch.object(commands, "_import_agent_module",
+                      return_value=(lambda model: fake_agent, CaptureDeps, MagicMock())), \
+         patch.object(commands, "get_embedder"), \
+         patch.object(commands, "get_storage"), \
+         patch.object(commands, "DBRegistry"):
+        out = commands._create_and_run_agent("вопрос", cfg, 5)
+
+    assert out == "ответ"
+    assert captured["search_log"] is hermetic_search_log
+    assert captured["top_k"] == 5

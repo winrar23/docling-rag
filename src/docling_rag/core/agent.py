@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from docling_rag.core.embedder import Embedder
-from docling_rag.core.protocols import DocumentRegistryBackend, StorageBackend
+from docling_rag.core.protocols import DocumentRegistryBackend, SearchLogBackend, StorageBackend
 from docling_rag.core.search import run_search
 
 
@@ -18,6 +20,9 @@ class AgentDeps:
     storage: StorageBackend
     registry: DocumentRegistryBackend
     top_k: int
+    # Заполняются механикой /chat и ask; дефолты сохраняют старый 4-арговый конструктор.
+    search_log: SearchLogBackend | None = None
+    sources: list = field(default_factory=list)  # (meta, score) из tool-вызовов за run
 
 
 SYSTEM_PROMPT = (
@@ -84,9 +89,15 @@ def _build_doc_list(registry: DocumentRegistryBackend) -> str:
     return "\n".join(lines)
 
 
-def build_lmstudio_model(model_name: str, base_url: str, api_key: str) -> OpenAIChatModel:
-    """LM Studio speaks Chat Completions — keep the explicit OpenAIChatModel (v2: 'openai:' prefix means Responses API)."""
-    return OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=base_url, api_key=api_key))
+def build_lmstudio_model(model_name: str, base_url: str, api_key: str,
+                         timeout_sec: float = 120.0) -> OpenAIChatModel:
+    """LM Studio speaks Chat Completions — keep the explicit OpenAIChatModel (v2: 'openai:' prefix means Responses API).
+
+    timeout_sec — отсечка ожидания LLM (httpx), чтобы зависший LM Studio не держал запрос вечно.
+    """
+    provider = OpenAIProvider(base_url=base_url, api_key=api_key,
+                              http_client=httpx.AsyncClient(timeout=timeout_sec))
+    return OpenAIChatModel(model_name, provider=provider)
 
 
 def create_agent(model) -> Agent:
@@ -95,7 +106,10 @@ def create_agent(model) -> Agent:
         model,
         deps_type=AgentDeps,
         output_type=str,
-        system_prompt=SYSTEM_PROMPT,
+        # instructions, НЕ system_prompt: при непустом message_history pydantic-ai
+        # не отправляет system_prompt, а instructions отправляет каждый run —
+        # иначе чат с историей работал бы без RAG-правил.
+        instructions=SYSTEM_PROMPT,
     )
 
     @agent.instructions
@@ -111,6 +125,12 @@ def create_agent(model) -> Agent:
             ctx.deps.storage,
             ctx.deps.top_k,
         )
+        ctx.deps.sources.extend(results)
+        if results and ctx.deps.search_log is not None:
+            try:
+                ctx.deps.search_log.log(query, float(results[0][1]))
+            except Exception as e:  # отказ лога не роняет run — контракт как у CLI search
+                print(f"предупреждение: лог поиска не записан: {e}", file=sys.stderr)
         return format_search_results(results)
 
     return agent

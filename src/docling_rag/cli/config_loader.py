@@ -13,6 +13,7 @@ _DEFAULTS = {
     "llm_api_key": "lm-studio",
     "llm_model": "local-model",
     "agent_top_k": 5,
+    "llm_timeout_sec": 120,
     "database_url": "postgresql://docling:docling@127.0.0.1:5432/docling_rag",
     "chunk_max_tokens": 512,
     "uploads_dir": "/uploads",

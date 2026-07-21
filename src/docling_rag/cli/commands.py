@@ -10,6 +10,7 @@ from docling_rag.core.errors import (
     StorageError,
     StorageSchemaMissingError,
     StorageUnavailableError,
+    cause_chain,
 )
 from docling_rag.core.indexer import index_files
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
@@ -260,14 +261,7 @@ def _is_connection_error(e: BaseException) -> bool:
         conn_types: tuple[type, ...] = (ConnectionError, httpx.ConnectError, httpx.ConnectTimeout)
     except ImportError:
         conn_types = (ConnectionError,)
-    seen: set[int] = set()
-    cur: BaseException | None = e
-    while cur is not None and id(cur) not in seen:
-        if isinstance(cur, conn_types):
-            return True
-        seen.add(id(cur))
-        cur = cur.__cause__ or cur.__context__
-    return False
+    return any(isinstance(cur, conn_types) for cur in cause_chain(e))
 
 
 def _import_agent_module():
@@ -279,11 +273,15 @@ def _import_agent_module():
 def _create_and_run_agent(question: str, cfg: dict, top_k: int) -> str:
     """Create agent and run synchronously. Separated for testability."""
     create_agent, AgentDeps, build_lmstudio_model = _import_agent_module()
-    agent = create_agent(build_lmstudio_model(cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"]))
+    agent = create_agent(build_lmstudio_model(
+        cfg["llm_model"], cfg["llm_base_url"], cfg["llm_api_key"],
+        timeout_sec=float(cfg.get("llm_timeout_sec", 120)),
+    ))
     embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
-    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k)
+    deps = AgentDeps(embedder=embedder, storage=storage, registry=registry, top_k=top_k,
+                     search_log=DBSearchLog(cfg["database_url"]))
     result = agent.run_sync(question, deps=deps)
     return result.output
 
