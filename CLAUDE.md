@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). **Этап 4-C (chat-API)** завершён: `POST /chat` (JSON без стриминга, sources из tool-вызовов, история от клиента, лог агентских поисков — TODO п.5 закрыт), `instructions=` вместо `system_prompt=` (переживает message_history), `llm_timeout_sec`. Остаток этапа 4 — только D (веб-UI). 205 fast + 41 integration + 1 slow тест, все зелёные.
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). **Этап 4-C (chat-API)** завершён: `POST /chat` (JSON без стриминга, sources из tool-вызовов, история от клиента, лог агентских поисков — TODO п.5 закрыт), `instructions=` вместо `system_prompt=` (переживает message_history), `llm_timeout_sec`. **Авто-OCR + ocr_lang (en/ru)** завершены: `ocr: auto|on|off` (дефолт auto) + `ocr_lang: en|ru` (дефолт en) во всём тракте — CLI `add --ocr/--ocr-lang` → `POST /documents` form-поля → `jobs.ocr/ocr_lang` → worker → `Parser.parse`; детект текстового слоя pypdfium2 (`_has_text_layer`), кириллица через RapidOCR torch cyrillic-модель (gate: 82.6% слов на синтетическом скане). Остаток этапа 4 — только D (веб-UI). 239 fast + 44 integration + 1 slow тест, все зелёные.
 
 ## Stack
 
@@ -18,6 +18,7 @@ cp .env.example .env   # пути volumes и порты — правь под с
 docker compose up -d --wait postgres embed api worker   # embed :8100/health (модель), api :8000/health
 docker compose run --rm cli init                      # DDL: extension + таблицы + HNSW (идемпотентно; повторный init после апгрейда — см. Gotchas)
 docker compose run --rm cli add /books/my-book.pdf --title "My Book" --topic "..." --tag arch
+docker compose run --rm cli add /books/scan-ru.pdf --ocr auto --ocr-lang ru  # авто-детект скана + кириллица
 docker compose run --rm cli search "запрос"           # + --tag/--topic/--top-k
 docker compose run --rm cli list
 docker compose run --rm cli delete /books/my-book.pdf  # документ + его chunks (каскад)
@@ -43,9 +44,9 @@ curl -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' \
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,agent,api]"
 
-python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 205 passed, 42 deselected (герметичны, postgres НЕ нужен)
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 239 passed, 45 deselected (герметичны, postgres НЕ нужен)
 docker compose up -d postgres                                # прекондишн для integration
-python3 -m pytest tests/ -m integration                      # 41 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
+python3 -m pytest tests/ -m integration                      # 44 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 ```
 
 ## Architecture
@@ -59,7 +60,7 @@ docling-rag/
 │   │   ├── commands.py      # Click: init, add, search, list, delete, ask + exit-код контракт
 │   │   └── config_loader.py # load_config(path, *, required=) + дефолты + приоритет env DATABASE_URL
 │   ├── core/
-│   │   ├── parser.py     # Docling парсер → DoclingDocument; SUPPORTED_EXTENSIONS = {.pdf, .docx, .md}
+│   │   ├── parser.py     # Docling парсер → DoclingDocument; SUPPORTED_EXTENSIONS = {.pdf, .docx, .md} + детект текстового слоя (`_has_text_layer`, pypdfium2) и режимы `ocr`/`ocr_lang` с кешем конвертеров per (do_ocr, lang)
 │   │   ├── chunker.py    # chunk_document(); HybridChunker кеширован per (embedding_model, max_tokens)
 │   │   ├── embedder.py   # Embedder (Sentence Transformers, L2-норм.) + get_embedder(cfg) фактори: embed_url → HTTP, иначе локальная модель
 │   │   ├── embed_client.py # HTTPEmbedder — EmbedderBackend без загрузки модели; POST {embed_url}/embed; сетевые ошибки → EmbedServiceUnavailableError
@@ -80,7 +81,7 @@ docling-rag/
 │       ├── db_registry.py   # documents: title/topic/tags/added_at + id (DocumentRegistryBackend impl); get_by_id(doc_id) для REST-адресации
 │       ├── db_search_log.py # searches: query/top_score/searched_at (SearchLogBackend impl)
 │       └── db_jobs.py       # jobs: очередь фоновой индексации (JobBackend impl); claim_next через FOR UPDATE SKIP LOCKED
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 205 fast + 41 integration + 1 slow
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 239 fast + 44 integration + 1 slow
 ├── Dockerfile               # multi-stage: frontend-заглушка (node) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/embed/test/cli
 ├── compose.yaml             # postgres + embed + api + worker + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
 ├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
@@ -91,7 +92,7 @@ docling-rag/
 
 Дефолты конфига живут в коде (`cli/config_loader.py::_DEFAULTS`) — репозиторного `config.yaml` НЕТ (удалён: был побайтовым дублем дефолтов и молча их перекрывал). Свой `config.yaml` в cwd или `--config PATH` опциональны.
 
-Схема БД (`db_schema.py`): `documents(source_file PK, id uuid UNIQUE, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags, status queued|running|done|failed, step, chunks_total/done, error, attempts, created/started/updated/finished_at)` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`. `documents.id` (uuid, `gen_random_uuid()`) + `documents_id_key` (unique index) добавлены этапом 4-B идемпотентной миграцией внутри того же DDL (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`) — `source_file` остаётся PK, FK-цепочка не меняется, `id` только для REST-адресации карточек.
+Схема БД (`db_schema.py`): `documents(source_file PK, id uuid UNIQUE, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags, status queued|running|done|failed, step, chunks_total/done, error, attempts, created/started/updated/finished_at, ocr ('auto'|'on'|'off'), ocr_lang ('en'|'ru'))` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`. `ocr`/`ocr_lang` добавлены идемпотентной миграцией (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ... DEFAULT`), legacy-джобы читаются как `auto`/`en`. `documents.id` (uuid, `gen_random_uuid()`) + `documents_id_key` (unique index) добавлены этапом 4-B идемпотентной миграцией внутри того же DDL (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`) — `source_file` остаётся PK, FK-цепочка не меняется, `id` только для REST-адресации карточек.
 
 ## Gotchas
 
@@ -130,7 +131,7 @@ docling-rag/
 - **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
 - **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
 - **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
-- **Счётчики** — 205 fast (42 deselected), 41 integration, 1 slow
+- **Счётчики** — 239 fast (45 deselected), 44 integration, 1 slow
 
 ### CLI-контракты
 
@@ -152,6 +153,7 @@ docling-rag/
 
 - **postgres как очередь, без Celery/Redis** — `POST /documents` пишет строку в `jobs` (202 + job_id), CPU-тяжёлая индексация в отдельном `worker`-сервисе; `claim_next` через `FOR UPDATE SKIP LOCKED` (есть integration-тест на конкурентный claim с таймаут-стражем)
 - **`POST /documents` — sync def намеренно** — FastAPI уводит его в threadpool, файловый и БД I/O не блокируют event loop. Аплоад пишется чанками 1 МБ в `<dest>.part` + атомарный `os.replace` (весь файл в память не читается); лимит — ключ конфига `max_upload_mb` (дефолт 100), превышение → 413, прежний файл цел
+- **`POST /documents` — form-поля `ocr`/`ocr_lang`** (`Literal["auto","on","off"]` / `Literal["en","ru"]`, дефолты `auto`/`en`) — мусорное значение → 422 (FastAPI/pydantic валидация формы); пишутся в `jobs.ocr`/`jobs.ocr_lang`, воркер прокидывает в `Parser.parse`. После апгрейда с более старой схемы на долгоживущих postgres нужен разовый `docker compose run --rm cli init` (идемпотентная миграция колонок `jobs.ocr`/`jobs.ocr_lang`, тот же паттерн, что `documents.id` в 4-B)
 - **`jobs.source_file` резолвится в API** (`Path.resolve()`) — равен `documents.source_file` (indexer резолвит так же); на этом строится корреляция джоба↔документ в каталоге 4-B (`find_latest_by_source`). Дедуп: активная (queued/running) джоба с тем же source_file → 409 + существующий job_id. Partial unique index против TOCTOU отклонён (YAGNI, однопользовательский инструмент)
 - **Live-статус** — `GET /jobs/{id}`: `elapsed_sec`/`heartbeat_age_sec` считаются от `started_at`/`updated_at`; у терминальных (done/failed) `now` зажат до `finished_at` — значения заморожены. `?status=` валидируется Literal'ом (мусор → 422). Хартбит: тикер раз в ~10с + каждый тик прогресса; зависшие running возвращает `requeue_stale` (порог 60с, лимит попыток 3)
 - **Воркер переживает обрыв postgres** — итерация `run_loop` в try/except (stderr + пауза + повтор), плюс `restart: unless-stopped` на сервисе; недообработанная джоба вернётся через requeue_stale
@@ -188,7 +190,7 @@ docling-rag/
 - **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно — PyPI-колесо бинарно несовместимо с CPU-сборкой torch и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета — с одного CPU-индекса одной командой. Версии запинены; при осознанном апгрейде менять обе разом и проверять контейнерный тест-прогон. Дрейф ловится assert-слоем сразу после deps-установки
 - **Пре-бейк RapidOCR-моделей в образе** — rapidocr работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей при первом парсе PDF; Dockerfile конструирует `RapidOcrModel(... backend='torch')` на этапе сборки. Внутренний импорт `docling.models.stages.ocr.rapid_ocr_model` защищён пином `docling==2.113.0` — апгрейд docling осознанный (пин + ребилд + контейнерный прогон)
 - **api теперь покрывает ingestion + read-API + chat-API** — `GET /health`, `POST /documents`, `GET /jobs(/{id})`, `GET/DELETE /documents(/{id})`, `GET /search`, `POST /chat`; веб-UI — этап 4-D
-- **OCR-кириллица не поддержана** — bundled-наборы RapidOCR в docling: english/latin/chinese. Актуально только для сканов без текстового слоя; нужен другой движок (easyocr/tesseract) — дальний бэклог
+- **OCR-кириллица поддержана через `ocr_lang=ru`** — bundled-маппинг lang в docling-обёртке знает только english/latin/chinese, поэтому кириллица идёт в обход, сырыми `rapidocr_params={"Rec.lang_type": "cyrillic"}` (`RapidOcrOptions(backend="torch", ...)`); модель `cyrillic_PP-OCRv3_rec_mobile.pth` (8.6 МБ, modelscope) пре-бейкнута в образ (Dockerfile, как и остальные RapidOCR-модели). Ограничение — компактная mobile-модель, рассчитана на печатный текст; gate-прогон на синтетическом русском скане дал 82.6% распознанных слов при нормальной вёрстке (переплотнённая, 70px межстрочный — 69.6%, mobile cls-модель чувствительна к плотной вёрстке)
 
 ## Non-Goals
 
