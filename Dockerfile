@@ -1,8 +1,13 @@
 # syntax=docker/dockerfile:1
 
-# --- Стадия frontend: заглушка до этапа 4 (здесь появится React build) ---
+# --- Стадия frontend: React-билд (этап 4-D) ---
 FROM node:22-slim AS frontend
-RUN mkdir -p /out/static
+WORKDIR /fe
+# слой зависимостей отдельно от src: правки кода не инвалидируют npm ci
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build && mkdir -p /out && mv dist /out/static
 
 # --- Стадия runtime: python + uv, один образ для api и cli ---
 FROM python:3.12-slim AS runtime
