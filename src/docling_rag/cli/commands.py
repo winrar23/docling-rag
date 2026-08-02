@@ -13,7 +13,7 @@ from docling_rag.core.errors import (
     cause_chain,
 )
 from docling_rag.core.indexer import index_files
-from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS
+from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS, OCR_LANGS, OCR_MODES
 from docling_rag.core.protocols import SearchLogBackend, StorageBackend
 from docling_rag.core.search import resolve_allowed_sources, run_search
 from docling_rag.storage.db_registry import DBRegistry
@@ -85,12 +85,18 @@ def init(config: str | None) -> None:
 @click.option("--title", default=None, help="Document title")
 @click.option("--topic", default=None, help="Domain/topic of the document")
 @click.option("--tag", "tags", multiple=True, help="Tag (repeatable: --tag arch --tag solid)")
+@click.option("--ocr", default="auto", type=click.Choice(OCR_MODES),
+              help="OCR: auto — по детекту текстового слоя, on/off — принудительно")
+@click.option("--ocr-lang", "ocr_lang", default="en", type=click.Choice(OCR_LANGS),
+              help="Язык OCR для сканов (ru — кириллическая модель)")
 def add(
     file_path: str,
     config: str | None,
     title: str | None,
     topic: str | None,
     tags: tuple[str, ...],
+    ocr: str,
+    ocr_lang: str,
 ) -> None:
     """Add a document or directory to the index."""
     cfg = _load_cfg(config)
@@ -107,7 +113,8 @@ def add(
     registry = DBRegistry(cfg["database_url"])
     try:
         report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
-                             chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags)
+                             chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags,
+                             ocr=ocr, ocr_lang=ocr_lang)
     except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
