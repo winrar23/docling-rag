@@ -17,3 +17,5 @@ docs/
 *.fb2
 .env
 .DS_Store
+frontend/node_modules
+frontend/dist
