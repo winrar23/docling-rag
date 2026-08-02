@@ -35,7 +35,12 @@ export default function UploadDialog() {
       tags: HTMLInputElement; ocr: HTMLSelectElement; ocr_lang: HTMLSelectElement;
     };
     const file = els.file.files?.[0];
-    if (!file) return;
+    if (!file) {
+      // noValidate убрал нативную браузерную валидацию (нужно для jsdom, см. комментарий на <form>) —
+      // без явного toast сабмит без файла был бы молчаливым no-op
+      toast.error("Выберите файл");
+      return;
+    }
     fd.append("file", file);
     if (els.title.value.trim()) fd.append("title", els.title.value.trim());
     if (els.topic.value.trim()) fd.append("topic", els.topic.value.trim());

@@ -53,3 +53,19 @@ test("409 (дубль) показывает сообщение бэкенда", 
   await user.click(screen.getByRole("button", { name: /^загрузить$/i }));
   expect(await screen.findByText("Уже индексируется")).toBeInTheDocument(); // sonner toast
 });
+
+test("сабмит без файла — сообщение, POST не уходит", async () => {
+  let called = false;
+  server.use(
+    http.post("/documents", () => {
+      called = true;
+      return HttpResponse.json({ job_id: "j1", status: "queued" }, { status: 202 });
+    }),
+  );
+  renderWithClient(<UploadDialog />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /загрузить документ/i }));
+  await user.click(screen.getByRole("button", { name: /^загрузить$/i }));
+  expect(await screen.findByText("Выберите файл")).toBeInTheDocument();
+  expect(called).toBe(false);
+});
