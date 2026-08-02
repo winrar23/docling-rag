@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import UploadDialog from "@/screens/documents/UploadDialog";
 
 export function useDocuments() {
   return useQuery({ queryKey: ["documents"], queryFn: api.listDocuments });
@@ -81,7 +82,10 @@ export default function DocumentsScreen() {
   const cards = documents.data ?? [];
   return (
     <div className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Документы</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Документы</h1>
+        <UploadDialog />
+      </div>
       <IndexingSection jobs={jobs.data ?? []} />
       {documents.isSuccess && cards.length === 0 ? (
         <p className="text-muted-foreground">Хранилище пустое. Документов нет.</p>
