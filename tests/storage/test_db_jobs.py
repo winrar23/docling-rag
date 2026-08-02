@@ -1,7 +1,9 @@
 """Integration DBJobs: реальная тест-БД docling_rag_test."""
+import psycopg
 import pytest
 
 from docling_rag.storage.db_jobs import DBJobs
+from docling_rag.storage.db_schema import init_schema
 
 pytestmark = pytest.mark.integration
 
@@ -169,3 +171,31 @@ def test_update_progress_preserves_counters_when_none(jobs):
     j = jobs.get(jid)
     assert j["step"] == "storing"
     assert j["chunks_done"] == 5 and j["chunks_total"] == 5
+
+
+def test_jobs_ocr_fields_roundtrip(jobs):
+    jid = jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="off", ocr_lang="ru")
+    job = jobs.get(jid)
+    assert job["ocr"] == "off" and job["ocr_lang"] == "ru"
+    claimed = None
+    while (j := jobs.claim_next()) is not None:  # добираемся до своей джобы
+        if j["id"] == jid:
+            claimed = j
+    assert claimed is not None and claimed["ocr"] == "off" and claimed["ocr_lang"] == "ru"
+
+
+def test_jobs_ocr_defaults_in_db(jobs):
+    jid = jobs.create("/b.pdf", "b.pdf", None, None, [])
+    job = jobs.get(jid)
+    assert job["ocr"] == "auto" and job["ocr_lang"] == "en"
+
+
+def test_init_schema_twice_keeps_ocr_columns(db_url):
+    """Повторный init на существующей схеме — идемпотентен, колонки на месте."""
+    init_schema(db_url)
+    init_schema(db_url)
+    with psycopg.connect(db_url) as conn:
+        cols = {r[0] for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'jobs'"
+        ).fetchall()}
+    assert {"ocr", "ocr_lang"} <= cols

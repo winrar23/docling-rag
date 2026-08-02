@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     title         text,
     topic         text,
     tags          text[] NOT NULL DEFAULT '{}',
+    ocr           text NOT NULL DEFAULT 'auto',
+    ocr_lang      text NOT NULL DEFAULT 'en',
     status        text NOT NULL DEFAULT 'queued',
     step          text,
     chunks_total  integer,
@@ -64,6 +66,11 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at   timestamptz
 );
 CREATE INDEX IF NOT EXISTS jobs_status_created_idx ON jobs (status, created_at);
+
+-- Параметры OCR per-job (авто-OCR, 2026-07-21). Идемпотентная миграция для
+-- существующих баз — тот же приём, что documents.id в 4-B; применяется явным init.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ocr text NOT NULL DEFAULT 'auto';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ocr_lang text NOT NULL DEFAULT 'en';
 """
 
 

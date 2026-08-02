@@ -113,13 +113,15 @@ class InMemoryJobs:
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
 
-    def create(self, source_file, original_name, title, topic, tags) -> str:
+    def create(self, source_file, original_name, title, topic, tags,
+               ocr="auto", ocr_lang="en") -> str:
         self._seq += 1
         jid = str(self._seq)
         now = self._now()
         self._rows[jid] = {
             "id": jid, "source_file": source_file, "original_name": original_name,
             "title": title, "topic": topic, "tags": list(tags),
+            "ocr": ocr, "ocr_lang": ocr_lang,
             "status": "queued", "step": None, "chunks_done": None, "chunks_total": None,
             "error": None, "attempts": 0,
             "created_at": now, "started_at": None, "updated_at": now, "finished_at": None,
