@@ -9,7 +9,7 @@ const backendPaths = ["/documents", "/jobs", "/search", "/chat", "/health"];
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
   server: {
     proxy: Object.fromEntries(backendPaths.map((p) => [p, "http://localhost:8000"])),
   },
