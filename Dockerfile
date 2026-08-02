@@ -42,6 +42,14 @@ from docling.datamodel.pipeline_options import RapidOcrOptions; \
 from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel; \
 RapidOcrModel(enabled=True, artifacts_path=None, options=RapidOcrOptions(backend='torch'), accelerator_options=AcceleratorOptions())"
 
+# Пре-бейк кириллической rec-модели RapidOCR (~10 МБ): ocr_lang=ru качает её при
+# первом русском скане — запекаем в слой, чтобы worker не ходил в modelscope в рантайме
+RUN python -c "\
+from docling.datamodel.accelerator_options import AcceleratorOptions; \
+from docling.datamodel.pipeline_options import RapidOcrOptions; \
+from docling.models.stages.ocr.rapid_ocr_model import RapidOcrModel; \
+RapidOcrModel(enabled=True, artifacts_path=None, options=RapidOcrOptions(backend='torch', rapidocr_params={'Rec.lang_type': 'cyrillic'}), accelerator_options=AcceleratorOptions())"
+
 COPY src/ src/
 # editable: /app/src — живой код пакета, dev-режим бинд-маунтит ./src поверх; deps уже в слое выше
 RUN --mount=type=cache,target=/root/.cache/uv \
