@@ -1,4 +1,4 @@
-# api/app.py — этап 4-A (ingestion) + 4-B (каталог, поиск) + 4-C (чат).
+# api/app.py — этап 4-A (ingestion) + 4-B (каталог, поиск) + 4-C (чат) + 4-D (SPA-статика).
 import os
 import sys
 from datetime import datetime, timezone
