@@ -36,5 +36,6 @@ export function makeJob(over: Partial<Job> = {}): Job {
     ocr_lang: "en",
     elapsed_sec: 30,
     heartbeat_age_sec: 2,
+    ...over,
   };
 }

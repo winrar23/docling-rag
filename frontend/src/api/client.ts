@@ -9,12 +9,14 @@ import type {
 } from "./types";
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public detail: unknown,
-  ) {
+  // без параметр-свойств: tsconfig шаблона включает erasableSyntaxOnly
+  status: number;
+  detail: unknown;
+  constructor(status: number, detail: unknown) {
     super(typeof detail === "string" ? detail : JSON.stringify(detail));
     this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
   }
 }
 
