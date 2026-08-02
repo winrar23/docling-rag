@@ -14,6 +14,14 @@ export function useDocuments() {
 
 const isActive = (j: Job) => j.status === "queued" || j.status === "running";
 
+// step из БД null до первого прогресс-тика — фолбэк обязан быть русским (Global Constraints)
+const STATUS_RU: Record<Job["status"], string> = {
+  queued: "в очереди",
+  running: "выполняется",
+  done: "готово",
+  failed: "ошибка",
+};
+
 export function useJobs() {
   return useQuery({
     queryKey: ["jobs"],
@@ -34,7 +42,7 @@ function IndexingSection({ jobs }: { jobs: Job[] }) {
           <div className="flex items-baseline justify-between">
             <span className="font-medium">{j.original_name}</span>
             <span className="text-sm text-muted-foreground">
-              {j.status === "failed" ? "ошибка" : j.step ?? j.status}
+              {j.status === "failed" ? "ошибка" : j.step ?? STATUS_RU[j.status]}
             </span>
           </div>
           {j.status === "failed" ? (

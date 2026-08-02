@@ -32,3 +32,10 @@ test("done-джобы в секции не показываются", async () =
   await screen.findByText("Книга"); // каталог отрисовался
   expect(screen.queryByText("готовая.pdf")).not.toBeInTheDocument();
 });
+
+test("queued-джоба без step показывает русский статус", async () => {
+  mockApi([makeJob({ status: "queued", step: null, started_at: null, chunks_done: 0 })]);
+  renderWithClient(<DocumentsScreen />);
+  expect(await screen.findByText("в очереди")).toBeInTheDocument();
+  expect(screen.queryByText("queued")).not.toBeInTheDocument();
+});
