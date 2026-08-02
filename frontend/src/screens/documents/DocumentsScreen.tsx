@@ -1,8 +1,15 @@
 import { useEffect, useRef } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, basename } from "@/api/client";
-import type { Job } from "@/api/types";
+import type { DocumentCard, Job } from "@/api/types";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -65,6 +72,38 @@ function IndexingSection({ jobs }: { jobs: Job[] }) {
   );
 }
 
+function DeleteButton({ card }: { card: DocumentCard }) {
+  const queryClient = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => api.deleteDocument(card.id),
+    onSuccess: (res) => {
+      toast.success(`Удалено: ${res.deleted} (${res.chunks} chunks)`);
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    // onError не нужен: 409/прочие ошибки показывает глобальный MutationCache toast
+  });
+  const name = card.title ?? basename(card.source_file);
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="ghost" size="sm">Удалить</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Удалить «{name}»?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Запись, чанки и файл из uploads будут удалены. История джоб и лог поисков останутся.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Отмена</AlertDialogCancel>
+          <AlertDialogAction onClick={() => del.mutate()}>Да, удалить</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function DocumentsScreen() {
   const queryClient = useQueryClient();
   const documents = useDocuments();
@@ -98,6 +137,7 @@ export default function DocumentsScreen() {
               <TableHead>Теги</TableHead>
               <TableHead>Добавлен</TableHead>
               <TableHead className="text-right">Чанков</TableHead>
+              <TableHead className="text-right">Действия</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -112,6 +152,9 @@ export default function DocumentsScreen() {
                 </TableCell>
                 <TableCell>{new Date(c.added_at).toLocaleString("ru-RU")}</TableCell>
                 <TableCell className="text-right">{c.chunks}</TableCell>
+                <TableCell className="text-right">
+                  <DeleteButton card={c} />
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
