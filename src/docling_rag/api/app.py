@@ -253,6 +253,7 @@ def create_document(  # sync def: FastAPI уводит в threadpool — фай�
     title: str | None = Form(None),
     topic: str | None = Form(None),
     tags: list[str] = Form(default=[]),
+    # Literal-дубликаты OCR_MODES/OCR_LANGS (core/parser.py) — FastAPI требует литеральный тип; менять синхронно
     ocr: Literal["auto", "on", "off"] = Form("auto"),
     ocr_lang: Literal["en", "ru"] = Form("en"),
     settings: dict = Depends(get_settings),

@@ -66,7 +66,14 @@ docker compose run --rm cli add /books/subdir/
 
 # With metadata (all optional)
 docker compose run --rm cli add /books/file.pdf --title "My Doc" --topic "data vault" --tag arch --tag solid
+
+# With OCR tuning (for scanned PDFs)
+docker compose run --rm cli add /books/scan.pdf --ocr on --ocr-lang ru
 ```
+
+**OCR flags** (optional, PDF only):
+- `--ocr [auto|on|off]` — режим OCR (дефолт: auto = детект текстового слоя: цифровой PDF → off, скан → on)
+- `--ocr-lang [en|ru]` — язык OCR для сканов (дефолт: en; ru = кириллическая модель RapidOCR)
 
 Supported formats: **PDF, DOCX, MD only**. Docling does NOT parse `.txt` files.
 
@@ -126,7 +133,7 @@ Every command also accepts `--config PATH`.
 | Command | Flags | Example |
 |---------|-------|---------|
 | `init` | — | `docker compose run --rm cli init` |
-| `add` | `--title`, `--topic`, `--tag` (repeatable) | `docker compose run --rm cli add /books/ --tag arch` |
+| `add` | `--title`, `--topic`, `--tag` (repeatable), `--ocr`, `--ocr-lang` | `docker compose run --rm cli add /books/ --tag arch` |
 | `search` | `--top-k`, `--tag` (repeatable), `--topic` | `docker compose run --rm cli search "hub tables"` |
 | `list` | — | `docker compose run --rm cli list` |
 | `delete` | — | `docker compose run --rm cli delete /books/x.pdf` |
