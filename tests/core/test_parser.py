@@ -74,3 +74,16 @@ class TestHasTextLayer:
         p = tmp_path / "zero.pdf"
         p.write_bytes(make_empty_pdf(pages=0))
         assert _has_text_layer(p) == (False, 0, 0)
+
+    def test_len_doc_raises_counts_as_scan(self, tmp_path):
+        """Corrupted PDF with broken page tree: len(doc) raises -> (False, 0, 0)."""
+        p = tmp_path / "broken_tree.pdf"
+        p.write_bytes(make_text_pdf(_LONG, pages=1))  # Valid file for file I/O
+
+        with patch("pypdfium2.PdfDocument") as MockDoc:
+            mock_doc = MagicMock()
+            mock_doc.__len__.side_effect = Exception("Broken page tree")
+            MockDoc.return_value = mock_doc
+
+            assert _has_text_layer(p) == (False, 0, 0)
+            mock_doc.close.assert_called_once()

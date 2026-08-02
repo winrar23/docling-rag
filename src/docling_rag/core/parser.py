@@ -26,21 +26,24 @@ def _has_text_layer(path: Path) -> tuple[bool, int, int]:
     except Exception:
         return False, 0, 0
     try:
-        n = len(doc)
-        if n == 0:
+        try:
+            n = len(doc)
+            if n == 0:
+                return False, 0, 0
+            count = min(n, _DETECT_MAX_PAGES)
+            step = (n - 1) / max(count - 1, 1)
+            indices = sorted({round(i * step) for i in range(count)})
+            text_pages = 0
+            for idx in indices:
+                try:
+                    text = doc[idx].get_textpage().get_text_range()
+                except Exception:
+                    continue  # нечитаемая страница = страница без текста
+                if len(text.strip()) >= _DETECT_MIN_CHARS:
+                    text_pages += 1
+            return (text_pages / len(indices)) >= _DETECT_TEXT_RATIO, text_pages, len(indices)
+        except Exception:
             return False, 0, 0
-        count = min(n, _DETECT_MAX_PAGES)
-        step = (n - 1) / max(count - 1, 1)
-        indices = sorted({round(i * step) for i in range(count)})
-        text_pages = 0
-        for idx in indices:
-            try:
-                text = doc[idx].get_textpage().get_text_range()
-            except Exception:
-                continue  # нечитаемая страница = страница без текста
-            if len(text.strip()) >= _DETECT_MIN_CHARS:
-                text_pages += 1
-        return (text_pages / len(indices)) >= _DETECT_TEXT_RATIO, text_pages, len(indices)
     finally:
         doc.close()
 
