@@ -14,3 +14,15 @@ class RO {
 }
 globalThis.ResizeObserver ??= RO as unknown as typeof ResizeObserver;
 window.HTMLElement.prototype.scrollIntoView ??= () => {};
+
+// Полифил matchMedia для sonner/Toaster
+window.matchMedia ??= () => ({
+  matches: false,
+  media: "",
+  onchange: null,
+  addListener: () => {},
+  removeListener: () => {},
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => true,
+}) as unknown as MediaQueryList;

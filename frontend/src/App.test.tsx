@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import App from "@/App";
+import { renderWithClient } from "@/test/render";
 
 test("сайдбар: три раздела, переключение видимости", async () => {
-  render(<App />);
+  renderWithClient(<App />);
   const user = userEvent.setup();
   // по умолчанию активен Чат
   expect(screen.getByRole("button", { name: /чат/i })).toBeInTheDocument();
@@ -13,7 +14,7 @@ test("сайдбар: три раздела, переключение видим
 });
 
 test("неактивные экраны остаются смонтированными (состояние не теряется)", async () => {
-  render(<App />);
+  renderWithClient(<App />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: /поиск/i }));
   // чат скрыт, но НЕ размонтирован
