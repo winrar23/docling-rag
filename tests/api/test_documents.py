@@ -103,3 +103,44 @@ def test_post_documents_strips_path_traversal(client):
     resp = c.post("/documents", files={"file": ("../../evil.pdf", io.BytesIO(b"a"), "application/pdf")})
     assert resp.status_code == 202
     assert (uploads / "evil.pdf").exists()  # только basename
+
+
+def test_post_documents_accepts_ocr_fields(client):
+    c, jobs, _ = client
+    resp = c.post(
+        "/documents",
+        files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")},
+        data={"ocr": "off", "ocr_lang": "ru"},
+    )
+    assert resp.status_code == 202
+    job = jobs.get(resp.json()["job_id"])
+    assert job["ocr"] == "off" and job["ocr_lang"] == "ru"
+
+
+def test_post_documents_ocr_defaults(client):
+    c, jobs, _ = client
+    resp = c.post("/documents", files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")})
+    assert resp.status_code == 202
+    job = jobs.get(resp.json()["job_id"])
+    assert job["ocr"] == "auto" and job["ocr_lang"] == "en"
+
+
+def test_post_documents_rejects_invalid_ocr_422(client):
+    c, jobs, uploads = client
+    resp = c.post(
+        "/documents",
+        files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")},
+        data={"ocr": "always"},
+    )
+    assert resp.status_code == 422
+    assert jobs.list() == []  # джоба не создана
+
+
+def test_post_documents_rejects_invalid_ocr_lang_422(client):
+    c, jobs, _ = client
+    resp = c.post(
+        "/documents",
+        files={"file": ("b.pdf", io.BytesIO(b"a"), "application/pdf")},
+        data={"ocr_lang": "de"},
+    )
+    assert resp.status_code == 422
