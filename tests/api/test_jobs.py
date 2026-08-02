@@ -86,3 +86,17 @@ def test_terminal_job_liveness_frozen_at_finished_at(client):
     body = c.get(f"/jobs/{jid}").json()
     assert body["elapsed_sec"] == 50  # finished - started, а не now - started
     assert body["heartbeat_age_sec"] == 0  # finished - updated
+
+
+def test_get_job_exposes_ocr_fields():
+    jobs = InMemoryJobs()
+    app.dependency_overrides[get_jobs] = lambda: jobs
+    try:
+        c = TestClient(app)
+        jid = jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="on", ocr_lang="ru")
+        resp = c.get(f"/jobs/{jid}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ocr"] == "on" and body["ocr_lang"] == "ru"
+    finally:
+        app.dependency_overrides.clear()

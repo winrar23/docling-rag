@@ -166,3 +166,36 @@ def test_build_deps_uses_embed_url_config(monkeypatch):
         "chunk_max_tokens": 256, "embed_url": "http://embed:8100",
     })
     assert isinstance(deps.embedder, HTTPEmbedder)
+
+
+def test_process_one_job_passes_ocr_params():
+    jobs = InMemoryJobs()
+    jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="off", ocr_lang="ru")
+    job = jobs.claim_next()
+    deps = _deps()
+    seen = {}
+
+    def fake_index(files, *args, **kwargs):
+        seen.update(kwargs)
+        return IndexReport(chunks_added=1, files_ok=1)
+
+    process_one_job(jobs, deps, job, index_fn=fake_index)
+    assert seen["ocr"] == "off" and seen["ocr_lang"] == "ru"
+    assert jobs.get(job["id"])["status"] == "done"
+
+
+def test_process_one_job_ocr_defaults_for_legacy_jobs():
+    """Старые джобы без ключей ocr — дефолты auto/en (job.get)."""
+    jobs = InMemoryJobs()
+    jobs.create("/b.pdf", "b.pdf", None, None, [])
+    job = jobs.claim_next()
+    del job["ocr"], job["ocr_lang"]  # эмуляция строки, созданной до миграции
+    deps = _deps()
+    seen = {}
+
+    def fake_index(files, *args, **kwargs):
+        seen.update(kwargs)
+        return IndexReport(chunks_added=1, files_ok=1)
+
+    process_one_job(jobs, deps, job, index_fn=fake_index)
+    assert seen["ocr"] == "auto" and seen["ocr_lang"] == "en"

@@ -99,3 +99,24 @@ def test_update_progress_preserves_counters_when_none():
     j = jobs.get(jid)
     assert j["step"] == "storing"
     assert j["chunks_done"] == 5 and j["chunks_total"] == 5  # сохранены, не обнулены
+
+
+def test_create_stores_ocr_params():
+    jobs = InMemoryJobs()
+    jid = jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="off", ocr_lang="ru")
+    job = jobs.get(jid)
+    assert job["ocr"] == "off" and job["ocr_lang"] == "ru"
+
+
+def test_create_ocr_defaults():
+    jobs = InMemoryJobs()
+    jid = jobs.create("/b.pdf", "b.pdf", None, None, [])
+    job = jobs.get(jid)
+    assert job["ocr"] == "auto" and job["ocr_lang"] == "en"
+
+
+def test_claim_next_returns_ocr_params():
+    jobs = InMemoryJobs()
+    jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="on", ocr_lang="ru")
+    job = jobs.claim_next()
+    assert job["ocr"] == "on" and job["ocr_lang"] == "ru"

@@ -97,11 +97,12 @@ class JobBackend(Protocol):
 
     Job-dict: id, source_file, original_name, title, topic, tags, status
     (queued|running|done|failed), step, chunks_done, chunks_total, error,
-    attempts, created_at, started_at, updated_at, finished_at.
+    attempts, created_at, started_at, updated_at, finished_at, ocr, ocr_lang.
     """
 
     def create(self, source_file: str, original_name: str,
-               title: str | None, topic: str | None, tags: list[str]) -> str:
+               title: str | None, topic: str | None, tags: list[str],
+               ocr: str = "auto", ocr_lang: str = "en") -> str:
         """Insert a queued job. Return job_id."""
         ...
 

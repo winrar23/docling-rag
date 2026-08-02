@@ -47,6 +47,8 @@ def index_files(
     title: str | None = None,
     topic: str | None = None,
     tags: Sequence[str] = (),
+    ocr: str = "auto",
+    ocr_lang: str = "en",
     on_progress: ProgressCallback | None = None,
 ) -> IndexReport:
     def report_progress(step: str, done: int | None = None, total: int | None = None) -> None:
@@ -59,7 +61,7 @@ def index_files(
         try:
             source = str(Path(file).resolve())
             report_progress(PARSING)
-            doc = parser.parse(file)
+            doc = parser.parse(file, ocr=ocr, ocr_lang=ocr_lang)
             report_progress(CHUNKING)
             chunks = chunk_document(
                 doc, source_file=source, embedding_model=embedding_model, max_tokens=chunk_max_tokens

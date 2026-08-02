@@ -142,3 +142,16 @@ def test_index_files_reports_progress_steps(monkeypatch):
     embed_events = [e for e in events if e[0] == indexer_mod.EMBEDDING]
     assert embed_events, "должны быть события embedding"
     assert embed_events[-1] == (indexer_mod.EMBEDDING, 5, 5)  # последний батч: done==total==5
+
+
+def test_index_files_passes_ocr_to_parser(tmp_path):
+    f = tmp_path / "doc.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    parser = MagicMock()
+    embedder = MagicMock()
+    embedder.embed.return_value = np.zeros((1, 4), dtype=np.float32)
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[]):
+        index_files([f], parser, embedder, storage, registry, "model",
+                    ocr="off", ocr_lang="ru")
+    parser.parse.assert_called_once_with(f, ocr="off", ocr_lang="ru")

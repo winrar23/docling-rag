@@ -253,6 +253,9 @@ def create_document(  # sync def: FastAPI уводит в threadpool — фай�
     title: str | None = Form(None),
     topic: str | None = Form(None),
     tags: list[str] = Form(default=[]),
+    # Literal-дубликаты OCR_MODES/OCR_LANGS (core/parser.py) — FastAPI требует литеральный тип; менять синхронно
+    ocr: Literal["auto", "on", "off"] = Form("auto"),
+    ocr_lang: Literal["en", "ru"] = Form("en"),
     settings: dict = Depends(get_settings),
     jobs: JobBackend = Depends(get_jobs),
 ) -> dict:
@@ -276,7 +279,7 @@ def create_document(  # sync def: FastAPI уводит в threadpool — фай�
     os.makedirs(uploads_dir, exist_ok=True)
     _save_upload(file.file, source_file, int(settings["max_upload_mb"]) * 1024 * 1024)
 
-    job_id = jobs.create(source_file, name, title, topic, tags)
+    job_id = jobs.create(source_file, name, title, topic, tags, ocr=ocr, ocr_lang=ocr_lang)
     return {"job_id": job_id, "status": "queued"}
 
 

@@ -68,7 +68,7 @@ def test_add_command_indexes_file(runner, tmp_path):
     assert result.exit_code == 0
     assert "chunk" in result.output.lower() or "добавлен" in result.output.lower()
 
-    MockParser.return_value.parse.assert_called_once_with(test_doc)
+    MockParser.return_value.parse.assert_called_once_with(test_doc, ocr="auto", ocr_lang="en")
     # Embedding uses context_text, not text
     embedder_instance.embed.assert_called_once_with([mock_chunk.context_text], batch_size=128)
     storage_instance.append.assert_called_once()
@@ -808,3 +808,45 @@ def test_create_and_run_agent_passes_search_log(hermetic_search_log):
     assert out == "ответ"
     assert captured["search_log"] is hermetic_search_log
     assert captured["top_k"] == 5
+
+
+def test_add_passes_ocr_options_to_index_files(runner, fake_backends, tmp_path):
+    from docling_rag.core.indexer import IndexReport
+    f = tmp_path / "b.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    with patch("docling_rag.cli.commands.index_files") as mi, \
+         patch("docling_rag.cli.commands.Parser"), \
+         patch("docling_rag.cli.commands.get_embedder"):
+        mi.return_value = IndexReport(chunks_added=3, files_ok=1)
+        result = runner.invoke(main, ["add", str(f), "--ocr", "off", "--ocr-lang", "ru"])
+    assert result.exit_code == 0
+    assert mi.call_args.kwargs["ocr"] == "off"
+    assert mi.call_args.kwargs["ocr_lang"] == "ru"
+
+
+def test_add_ocr_defaults_to_auto_en(runner, fake_backends, tmp_path):
+    from docling_rag.core.indexer import IndexReport
+    f = tmp_path / "b.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    with patch("docling_rag.cli.commands.index_files") as mi, \
+         patch("docling_rag.cli.commands.Parser"), \
+         patch("docling_rag.cli.commands.get_embedder"):
+        mi.return_value = IndexReport(chunks_added=3, files_ok=1)
+        result = runner.invoke(main, ["add", str(f)])
+    assert result.exit_code == 0
+    assert mi.call_args.kwargs["ocr"] == "auto"
+    assert mi.call_args.kwargs["ocr_lang"] == "en"
+
+
+def test_add_rejects_invalid_ocr_choice(runner, tmp_path):
+    f = tmp_path / "b.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    result = runner.invoke(main, ["add", str(f), "--ocr", "always"])
+    assert result.exit_code == 2  # UsageError от click.Choice
+
+
+def test_add_rejects_invalid_ocr_lang_choice(runner, tmp_path):
+    f = tmp_path / "b.pdf"
+    f.write_bytes(b"%PDF-1.4 fake")
+    result = runner.invoke(main, ["add", str(f), "--ocr-lang", "de"])
+    assert result.exit_code == 2
