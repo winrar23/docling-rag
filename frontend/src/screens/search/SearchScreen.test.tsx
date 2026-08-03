@@ -62,3 +62,23 @@ test("бейдж element_type для таблиц", async () => {
   await user.click(screen.getByRole("button", { name: /найти/i }));
   expect(await screen.findByText("table")).toBeInTheDocument();
 });
+
+test("возврат фокуса в окно не перезапрашивает поиск (не спамит searches)", async () => {
+  let calls = 0;
+  server.use(
+    http.get("/documents", () => HttpResponse.json([makeCard({ tags: ["dwh"], topic: "Данные" })])),
+    http.get("/search", () => {
+      calls += 1;
+      return HttpResponse.json({ query: "q", results: [RESULT] });
+    }),
+  );
+  renderWithClient(<SearchScreen />);
+  const user = userEvent.setup();
+  await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");
+  await user.click(screen.getByRole("button", { name: /найти/i }));
+  await screen.findByText(/Хабы содержат/);
+  // TanStack v5 focusManager слушает visibilitychange на window
+  window.dispatchEvent(new Event("visibilitychange"));
+  await new Promise((r) => setTimeout(r, 50)); // даём refetch'у шанс уйти
+  expect(calls).toBe(1);
+});
