@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/api/client";
@@ -15,7 +15,6 @@ const selectCls =
 
 export default function UploadDialog() {
   const [open, setOpen] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
   const queryClient = useQueryClient();
   const upload = useMutation({
     mutationFn: api.upload,
@@ -64,7 +63,7 @@ export default function UploadDialog() {
         {/* noValidate: jsdom считает required-file-input невалидным даже после userEvent.upload
             (checkValidity() всегда false для type=file), из-за чего click по submit не диспатчит
             submit-событие в тестах — required остаётся для семантики/aria, проверка файла ручная (see below) */}
-        <form ref={formRef} onSubmit={submit} noValidate className="space-y-3">
+        <form onSubmit={submit} noValidate className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="file">Файл (PDF, DOCX, MD)</Label>
             <Input id="file" name="file" type="file" accept=".pdf,.docx,.md" required />
