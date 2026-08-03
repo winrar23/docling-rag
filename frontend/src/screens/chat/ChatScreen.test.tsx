@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatScreen from "@/screens/chat/ChatScreen";
@@ -77,4 +77,20 @@ test("«Новый диалог» очищает ленту", async () => {
   await screen.findByText(/методология DWH/);
   await user.click(screen.getByRole("button", { name: /новый диалог/i }));
   expect(screen.queryByText(/методология DWH/)).not.toBeInTheDocument();
+});
+
+test("«Новый диалог» задизейблен, пока запрос в полёте", async () => {
+  server.use(
+    http.post("/chat", async () => {
+      await delay(150);
+      return HttpResponse.json(ANSWER);
+    }),
+  );
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await user.type(screen.getByPlaceholderText(/спросить/i), "Вопрос");
+  await user.click(screen.getByRole("button", { name: /отправить/i }));
+  expect(screen.getByRole("button", { name: /новый диалог/i })).toBeDisabled();
+  await screen.findByText(/методология DWH/);
+  expect(screen.getByRole("button", { name: /новый диалог/i })).toBeEnabled();
 });

@@ -69,7 +69,7 @@ export default function ChatScreen() {
     <div className="mx-auto flex h-full max-w-3xl flex-col p-6">
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Чат</h1>
-        <Button variant="ghost" size="sm" onClick={() => setMessages([])}>
+        <Button variant="ghost" size="sm" onClick={() => setMessages([])} disabled={chat.isPending}>
           Новый диалог
         </Button>
       </div>
