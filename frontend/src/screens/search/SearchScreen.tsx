@@ -31,12 +31,22 @@ export default function SearchScreen() {
     };
     const q = els.q.value.trim();
     if (!q) return;
-    setParams({
+    const next: SearchParams = {
       q,
       tag: els.tag.value || undefined,
       topic: els.topic.value || undefined,
       topK: els.topk.value ? Number(els.topk.value) : undefined,
-    });
+    };
+    // идентичные параметры дают тот же queryKey — TanStack молча отдал бы кеш;
+    // повторный сабмит должен перезапросить (и записать поиск в searches), как повторный cli search
+    const same =
+      params !== null &&
+      next.q === params.q &&
+      next.tag === params.tag &&
+      next.topic === params.topic &&
+      next.topK === params.topK;
+    if (same) void search.refetch();
+    else setParams(next);
   };
 
   return (

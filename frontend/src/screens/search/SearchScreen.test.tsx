@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SearchScreen from "@/screens/search/SearchScreen";
 import { makeCard } from "@/test/factories";
@@ -81,4 +81,22 @@ test("возврат фокуса в окно не перезапрашивае�
   window.dispatchEvent(new Event("visibilitychange"));
   await new Promise((r) => setTimeout(r, 50)); // даём refetch'у шанс уйти
   expect(calls).toBe(1);
+});
+
+test("повторный сабмит идентичного запроса перезапрашивает", async () => {
+  let calls = 0;
+  server.use(
+    http.get("/documents", () => HttpResponse.json([makeCard({ tags: ["dwh"], topic: "Данные" })])),
+    http.get("/search", () => {
+      calls += 1;
+      return HttpResponse.json({ query: "q", results: [RESULT] });
+    }),
+  );
+  renderWithClient(<SearchScreen />);
+  const user = userEvent.setup();
+  await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");
+  await user.click(screen.getByRole("button", { name: /найти/i }));
+  await screen.findByText(/Хабы содержат/);
+  await user.click(screen.getByRole("button", { name: /найти/i }));
+  await waitFor(() => expect(calls).toBe(2));
 });
