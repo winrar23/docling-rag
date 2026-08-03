@@ -23,7 +23,17 @@ export class ApiError extends Error {
 export function detailMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (typeof e.detail === "string") return e.detail;
-    if (e.detail && typeof e.detail === "object" && "message" in e.detail) {
+    if (Array.isArray(e.detail)) {
+      // FastAPI-валидация (422): detail — массив {loc, msg, type}
+      const msgs = e.detail
+        .map((d) =>
+          d && typeof d === "object" && typeof (d as { msg?: unknown }).msg === "string"
+            ? (d as { msg: string }).msg
+            : null,
+        )
+        .filter((m): m is string => m !== null);
+      if (msgs.length > 0) return msgs.join("; ");
+    } else if (e.detail && typeof e.detail === "object" && "message" in e.detail) {
       return String((e.detail as { message: unknown }).message);
     }
     return `Ошибка ${e.status}`;

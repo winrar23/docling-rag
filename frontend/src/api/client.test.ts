@@ -47,3 +47,16 @@ test("basename отрезает путь", () => {
   expect(basename("/uploads/книга.pdf")).toBe("книга.pdf");
   expect(basename("book.md")).toBe("book.md");
 });
+
+test("422 array-detail (FastAPI-валидация) собирается из msg через «; »", () => {
+  const err = new ApiError(422, [
+    { loc: ["query", "top_k"], msg: "Input should be greater than or equal to 1", type: "greater_than_equal" },
+    { loc: ["query", "q"], msg: "Field required", type: "missing" },
+  ]);
+  expect(detailMessage(err)).toBe("Input should be greater than or equal to 1; Field required");
+});
+
+test("мусорный array-detail без msg падает в фолбэк «Ошибка N»", () => {
+  const err = new ApiError(422, [{ unexpected: true }, "строка"]);
+  expect(detailMessage(err)).toBe("Ошибка 422");
+});
