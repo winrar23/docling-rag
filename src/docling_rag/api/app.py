@@ -1,4 +1,4 @@
-# api/app.py — этап 4-A (ingestion) + 4-B (каталог, поиск) + 4-C (чат).
+# api/app.py — этап 4-A (ingestion) + 4-B (каталог, поиск) + 4-C (чат) + 4-D (SPA-статика).
 import os
 import sys
 from datetime import datetime, timezone
@@ -8,6 +8,7 @@ from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from docling_rag.cli.config_loader import load_config
@@ -370,3 +371,16 @@ def delete_document(doc_id: str,
         except OSError as e:  # истина — в БД; файл не критичен
             print(f"предупреждение: файл не удалён: {e}", file=sys.stderr)
     return {"deleted": entry["title"] or source, "chunks": chunks, "file_removed": file_removed}
+
+
+# --- SPA-статика (этап 4-D) ------------------------------------------------
+def mount_static(app: FastAPI, static_dir: str = "static") -> None:
+    """Монтирует собранный фронтенд на '/' — строго ПОСЛЕ всех роутов.
+
+    Папки нет (dev на хосте, герметичные тесты) — тихий no-op: API работает без UI.
+    """
+    if Path(static_dir).is_dir():
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+
+mount_static(app)
