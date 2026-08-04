@@ -11,6 +11,29 @@ import { Textarea } from "@/components/ui/textarea";
 
 type Message = ChatTurn & { sources?: ChatSource[] };
 
+// Абзацы текста чанка: \n — граница только после конца предложения,
+// остальные переносы — артефакты PDF-вёрстки, склеиваются пробелом.
+const PARAGRAPH_END = /[.!?:;…]["»)\]]?$/;
+
+export function splitParagraphs(text: string): string[] {
+  const paragraphs: string[] = [];
+  let current = "";
+  for (const line of text.split("\n")) {
+    const fragment = line.trim();
+    if (!fragment) continue;
+    if (!current) {
+      current = fragment;
+    } else if (PARAGRAPH_END.test(current)) {
+      paragraphs.push(current);
+      current = fragment;
+    } else {
+      current += " " + fragment;
+    }
+  }
+  if (current) paragraphs.push(current);
+  return paragraphs;
+}
+
 function SourceChips({
   sources,
   onSelect,
@@ -163,7 +186,7 @@ export default function ChatScreen() {
         aria-label="Источник"
         data-testid="source-panel"
         onClick={(e) => e.stopPropagation()}
-        className={`fixed inset-y-0 right-0 z-40 flex w-96 max-w-full flex-col border-l bg-background shadow-lg transition-transform duration-200 ${
+        className={`fixed inset-y-0 right-0 z-40 flex w-[48rem] max-w-full flex-col border-l bg-background shadow-lg transition-transform duration-200 ${
           sourceOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -183,7 +206,17 @@ export default function ChatScreen() {
               <span>score {source.score.toFixed(2)}</span>
             </div>
             {source.text ? (
-              <p className="leading-relaxed whitespace-pre-wrap">{source.text}</p>
+              source.element_type === "table" || source.element_type === "code" ? (
+                <p className="leading-relaxed whitespace-pre-wrap">{source.text}</p>
+              ) : (
+                <div className="space-y-3">
+                  {splitParagraphs(source.text).map((para, i) => (
+                    <p key={i} className="leading-relaxed">
+                      {para}
+                    </p>
+                  ))}
+                </div>
+              )
             ) : (
               <p className="text-muted-foreground">
                 Текст фрагмента недоступен — бэкенд не вернул поле text.

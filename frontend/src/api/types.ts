@@ -62,6 +62,7 @@ export interface ChatSource {
   headings: string[];
   score: number;
   text?: string; // текст фрагмента для панели источника; опционален — старый бэкенд его не отдаёт
+  element_type?: string; // text | table | code; опционален — старый бэкенд не отдаёт, undefined = обычный текст
 }
 
 export interface ChatResponse {
