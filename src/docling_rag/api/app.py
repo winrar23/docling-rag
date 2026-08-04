@@ -99,6 +99,7 @@ class ChatSource(BaseModel):
     page: int
     headings: list[str]
     score: float
+    text: str          # текст фрагмента — для панели источника в веб-UI
 
 
 class ChatResponse(BaseModel):
@@ -181,7 +182,8 @@ def chat(req: ChatRequest,  # sync def → threadpool: run_sync и sync psycopg/
         sources=[ChatSource(file=Path(meta["source_file"]).name,
                             page=meta["page_number"],
                             headings=meta["headings"] or [],
-                            score=float(score))
+                            score=float(score),
+                            text=meta["text"])
                  for meta, score in deps.sources],
     )
 

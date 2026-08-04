@@ -60,6 +60,7 @@ def test_chat_returns_answer_and_sources(client):
     assert src["page"] == 42
     assert src["headings"] == ["Ch 2"]
     assert isinstance(src["score"], float)
+    assert src["text"] == "Data Vault uses hubs."  # текст чанка из _seed — для панели источника
 
 
 def test_chat_logs_agent_search(client):
