@@ -100,6 +100,7 @@ class ChatSource(BaseModel):
     headings: list[str]
     score: float
     text: str          # текст фрагмента — для панели источника в веб-UI
+    element_type: str  # text | table | code — панель рендерит таблицы/код без разбиения на абзацы
 
 
 class ChatResponse(BaseModel):
@@ -183,7 +184,8 @@ def chat(req: ChatRequest,  # sync def → threadpool: run_sync и sync psycopg/
                             page=meta["page_number"],
                             headings=meta["headings"] or [],
                             score=float(score),
-                            text=meta["text"])
+                            text=meta["text"],
+                            element_type=meta["element_type"])
                  for meta, score in deps.sources],
     )
 
