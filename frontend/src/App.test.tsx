@@ -32,3 +32,9 @@ test("неактивные экраны остаются смонтирован�
   // чат скрыт, но НЕ размонтирован
   expect(screen.getByTestId("screen-chat")).toBeInTheDocument();
 });
+
+test("сайдбар: логотип Polka вместо docling-rag", () => {
+  renderWithClient(<App />);
+  expect(screen.getByText("Polka")).toBeInTheDocument();
+  expect(screen.queryByText("docling-rag")).not.toBeInTheDocument();
+});

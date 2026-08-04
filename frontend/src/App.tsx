@@ -17,8 +17,13 @@ export default function App() {
   const [active, setActive] = useState<SectionId>("chat");
   return (
     <div className="flex h-screen">
-      <aside className="flex w-56 shrink-0 flex-col gap-1 border-r p-3">
-        <div className="mb-4 px-3 pt-2 font-semibold">docling-rag</div>
+      <aside className="flex w-56 shrink-0 flex-col gap-1 border-r bg-sidebar p-3">
+        <div className="mb-4 flex items-center gap-2 px-3 pt-2 text-2xl font-semibold">
+          <svg width="28" height="28" viewBox="0 0 40 40" aria-hidden="true"><rect x="6" y="8" width="7" height="24" rx="2" fill="var(--primary)"></rect><rect x="16" y="12" width="7" height="20" rx="2" fill="var(--primary)" opacity="0.65"></rect><rect x="26" y="5" width="7" height="27" rx="2" fill="var(--primary)" opacity="0.4"></rect><rect x="4" y="33" width="32" height="3" rx="1.5" fill="currentColor"></rect></svg>
+          <span>
+            Polka<span className="text-primary">.</span>
+          </span>
+        </div>
         {SECTIONS.map((s) => (
           <Button
             key={s.id}
