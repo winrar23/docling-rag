@@ -1,5 +1,5 @@
 import { delay, http, HttpResponse } from "msw";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatScreen from "@/screens/chat/ChatScreen";
 import { renderWithClient } from "@/test/render";
@@ -7,7 +7,15 @@ import { server } from "@/test/server";
 
 const ANSWER = {
   answer: "Data Vault — методология DWH.",
-  sources: [{ file: "dwh-book.pdf", page: 87, headings: ["Data Vault"], score: 0.82 }],
+  sources: [
+    {
+      file: "dwh-book.pdf",
+      page: 87,
+      headings: ["Data Vault"],
+      score: 0.82,
+      text: "Data Vault 2.0 состоит из хабов, линков и сателлитов.",
+    },
+  ],
 };
 
 test("отправка: ответ и чипы источников; history пуста на первом ходе", async () => {
@@ -68,18 +76,18 @@ test("ошибка LLM: сообщение откатывается, текст 
   expect(screen.queryByText(/^Вопрос$/)).not.toBeInTheDocument(); // из ленты откачен
 });
 
-test("«Новый диалог» очищает ленту", async () => {
+test("«Очистить диалог» очищает ленту", async () => {
   server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
   renderWithClient(<ChatScreen />);
   const user = userEvent.setup();
   await user.type(screen.getByPlaceholderText(/спросить/i), "Вопрос");
   await user.click(screen.getByRole("button", { name: /отправить/i }));
   await screen.findByText(/методология DWH/);
-  await user.click(screen.getByRole("button", { name: /новый диалог/i }));
+  await user.click(screen.getByRole("button", { name: /очистить диалог/i }));
   expect(screen.queryByText(/методология DWH/)).not.toBeInTheDocument();
 });
 
-test("«Новый диалог» задизейблен, пока запрос в полёте", async () => {
+test("«Очистить диалог» задизейблен, пока запрос в полёте", async () => {
   server.use(
     http.post("/chat", async () => {
       await delay(150);
@@ -90,7 +98,88 @@ test("«Новый диалог» задизейблен, пока запрос 
   const user = userEvent.setup();
   await user.type(screen.getByPlaceholderText(/спросить/i), "Вопрос");
   await user.click(screen.getByRole("button", { name: /отправить/i }));
-  expect(screen.getByRole("button", { name: /новый диалог/i })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /очистить диалог/i })).toBeDisabled();
   await screen.findByText(/методология DWH/);
-  expect(screen.getByRole("button", { name: /новый диалог/i })).toBeEnabled();
+  expect(screen.getByRole("button", { name: /очистить диалог/i })).toBeEnabled();
+});
+
+const TWO_SOURCES = {
+  answer: "Ответ с двумя источниками.",
+  sources: [
+    { file: "dwh-book.pdf", page: 87, headings: ["Data Vault"], score: 0.82, text: "Фрагмент про Data Vault." },
+    { file: "arch-book.pdf", page: 12, headings: ["Архитектура"], score: 0.75, text: "Фрагмент про архитектуру." },
+  ],
+};
+
+const NO_TEXT = {
+  answer: "Ответ от старого бэкенда.",
+  sources: [{ file: "old-api.pdf", page: 3, headings: [], score: 0.5 }],
+};
+
+async function sendQuestion(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByPlaceholderText(/спросить/i), "Вопрос");
+  await user.click(screen.getByRole("button", { name: /отправить/i }));
+}
+
+test("клик по чипу открывает панель с текстом фрагмента и метаданными", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/dwh-book\.pdf · стр\. 87/));
+  const panel = screen.getByTestId("source-panel");
+  expect(panel.className).toContain("translate-x-0");
+  expect(within(panel).getByText(/хабов, линков и сателлитов/)).toBeInTheDocument();
+  expect(within(panel).getByText("Data Vault")).toBeInTheDocument(); // headings-цепочка
+  expect(within(panel).getByText(/стр\. 87/)).toBeInTheDocument();
+  expect(within(panel).getByText(/score 0\.82/)).toBeInTheDocument();
+});
+
+test("клик по области чата закрывает панель", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/dwh-book\.pdf · стр\. 87/));
+  expect(screen.getByTestId("source-panel").className).toContain("translate-x-0");
+  await user.click(screen.getByRole("heading", { name: "Чат" })); // клик «мимо» — по шапке экрана
+  expect(screen.getByTestId("source-panel").className).toContain("translate-x-full");
+});
+
+test("клик по чипу при открытой панели не закрывает её (stopPropagation)", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  const chip = await screen.findByText(/dwh-book\.pdf · стр\. 87/);
+  await user.click(chip);
+  await user.click(chip); // повторный клик по тому же чипу
+  expect(screen.getByTestId("source-panel").className).toContain("translate-x-0");
+});
+
+test("клик по другому чипу подменяет контент панели после анимации", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(TWO_SOURCES)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/dwh-book\.pdf · стр\. 87/));
+  const panel = screen.getByTestId("source-panel");
+  expect(within(panel).getByText(/про Data Vault/)).toBeInTheDocument();
+  await user.click(screen.getByText(/arch-book\.pdf · стр\. 12/));
+  // подмена происходит после выезда (таймер 200 мс) — ждём реальными таймерами
+  await waitFor(() => {
+    expect(within(panel).getByText(/про архитектуру/)).toBeInTheDocument();
+  });
+  expect(panel.className).toContain("translate-x-0");
+});
+
+test("источник без text показывает фолбэк-текст", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(NO_TEXT)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/old-api\.pdf · стр\. 3/));
+  expect(
+    within(screen.getByTestId("source-panel")).getByText(/Текст фрагмента недоступен/),
+  ).toBeInTheDocument();
 });

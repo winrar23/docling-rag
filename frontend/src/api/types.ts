@@ -61,6 +61,7 @@ export interface ChatSource {
   page: number;
   headings: string[];
   score: number;
+  text?: string; // текст фрагмента для панели источника; опционален — старый бэкенд его не отдаёт
 }
 
 export interface ChatResponse {
