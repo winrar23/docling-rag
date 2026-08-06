@@ -103,6 +103,15 @@ class InMemoryRegistry:
                 return source, dict(entry)
         return None
 
+    def update_metadata(self, source_file, fields) -> dict | None:
+        entry = self._docs.get(source_file)
+        if entry is None:
+            return None
+        for k in ("title", "author", "topic", "tags"):
+            if k in fields:
+                entry[k] = list(fields[k] or []) if k == "tags" else fields[k]
+        return dict(entry)
+
 
 class InMemoryJobs:
     """Семантика DBJobs без postgres. _rows публичен для тестов (правка heartbeat)."""

@@ -181,6 +181,17 @@ class TestDBRegistry:
         r.upsert("/b.pdf", title=None, topic=None, tags=[], author=None)
         assert r.get("/b.pdf")["author"] == "Иванов И."
 
+    def test_db_registry_update_metadata_partial_and_clear(self, clean_db):
+        r = self._registry(clean_db)
+        r.upsert("/b.pdf", title="T", topic="db", tags=["a"], author="A")
+        entry = r.update_metadata("/b.pdf", {"title": "T2", "topic": None})
+        assert entry["title"] == "T2"
+        assert entry["topic"] is None          # None очищает
+        assert entry["author"] == "A"          # не переданное — не тронуто
+        assert entry["tags"] == ["a"]
+        assert r.update_metadata("/b.pdf", {"tags": None})["tags"] == []  # None для tags → []
+        assert r.update_metadata("/nope.pdf", {"title": "X"}) is None
+
 
 def test_documents_have_uuid_id_and_get_by_id(clean_db):
     from docling_rag.storage.db_registry import DBRegistry

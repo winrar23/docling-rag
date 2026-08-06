@@ -89,6 +89,13 @@ class DocumentRegistryBackend(Protocol):
         """Return (source_file, entry) for a surrogate uuid, or None (malformed/unknown)."""
         ...
 
+    def update_metadata(self, source_file: str, fields: dict) -> dict | None:
+        """Явно установить переданные поля из {title, author, topic, tags} (None очищает).
+
+        Возвращает обновлённый entry или None, если документа нет.
+        """
+        ...
+
 
 class JobBackend(Protocol):
     """

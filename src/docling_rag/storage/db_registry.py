@@ -4,6 +4,8 @@ import psycopg
 
 from docling_rag.storage.db_storage import _translate_db_errors
 
+_EDITABLE_FIELDS = ("title", "author", "topic", "tags")
+
 
 def _row_to_entry(row) -> dict:
     id_, title, author, topic, tags, added_at = row
@@ -74,3 +76,20 @@ class DBRegistry:
                 " FROM documents WHERE id = %s::uuid", (doc_id,),
             ).fetchone()
         return (row[0], _row_to_entry(row[1:])) if row else None
+
+    def update_metadata(self, source_file: str, fields: dict) -> dict | None:
+        """Явный SET переданных полей (правка, в т.ч. очистка) — НЕ COALESCE-upsert индексатора."""
+        updates = {k: fields[k] for k in _EDITABLE_FIELDS if k in fields}
+        if "tags" in updates:
+            updates["tags"] = list(updates["tags"] or [])  # колонка NOT NULL: None → []
+        if not updates:
+            return self.get(source_file)
+        set_sql = ", ".join(f"{k} = %s" for k in updates)  # ключи из белого списка — не инъекция
+        with _translate_db_errors(), psycopg.connect(self._dsn) as conn:
+            row = conn.execute(
+                f"UPDATE documents SET {set_sql} WHERE source_file = %s"
+                " RETURNING id, title, author, topic, tags, added_at",
+                (*updates.values(), source_file),
+            ).fetchone()
+            conn.commit()
+        return _row_to_entry(row) if row else None

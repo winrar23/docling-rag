@@ -40,3 +40,15 @@ def test_inmemory_registry_upsert_and_read_author():
     # COALESCE-семантика: None не затирает
     reg.upsert("/b.pdf", title=None, topic=None, tags=[], author=None)
     assert reg.get("/b.pdf")["author"] == "Иванов И."
+
+
+def test_inmemory_registry_update_metadata_partial_and_clear():
+    reg = InMemoryRegistry()
+    reg.upsert("/b.pdf", title="T", topic="db", tags=["a"], author="A")
+    entry = reg.update_metadata("/b.pdf", {"title": "T2", "topic": None})
+    assert entry["title"] == "T2"
+    assert entry["topic"] is None          # None очищает
+    assert entry["author"] == "A"          # не переданное — не тронуто
+    assert entry["tags"] == ["a"]
+    assert reg.update_metadata("/b.pdf", {"tags": None})["tags"] == []  # None для tags → []
+    assert reg.update_metadata("/nope.pdf", {"title": "X"}) is None
