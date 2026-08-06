@@ -23,12 +23,11 @@ def test_index_files_happy_path(tmp_path):
     parser, embedder = MagicMock(), MagicMock()
     embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
     with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
-        report = index_files([f], parser, embedder, storage, registry, "all-MiniLM-L6-v2",
-                             title="T", topic="x", tags=("a",))
-    assert report == IndexReport(chunks_added=1, files_ok=1, files_failed=0, errors=[])
+        report = index_files([f], parser, embedder, storage, registry, "all-MiniLM-L6-v2")
+    assert report == IndexReport(chunks_added=1, files_ok=1, files_failed=0, errors=[], warnings=[])
     _, meta = storage.load()
     assert len(meta) == 1 and meta[0]["source_file"] == str(f.resolve())
-    assert registry.get(str(f.resolve()))["title"] == "T"
+    assert registry.get(str(f.resolve()))["title"] == f.stem
 
 
 def test_index_files_reindex_is_idempotent(tmp_path):
@@ -155,3 +154,100 @@ def test_index_files_passes_ocr_to_parser(tmp_path):
         index_files([f], parser, embedder, storage, registry, "model",
                     ocr="off", ocr_lang="ru")
     parser.parse.assert_called_once_with(f, ocr="off", ocr_lang="ru")
+
+
+def test_index_files_metadata_extractor_fills_registry(tmp_path):
+    from docling_rag.core.metadata import DocMeta
+
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
+    calls = []
+
+    def extractor(chunks):
+        calls.append(list(chunks))
+        return DocMeta(title="Книга", author="Автор А.", topic="базы данных",
+                       tags=["postgres"])
+
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
+        report = index_files([f], parser, embedder, storage, registry, "m",
+                             metadata_extractor=extractor)
+    entry = registry.get(str(f.resolve()))
+    assert entry["title"] == "Книга"
+    assert entry["author"] == "Автор А."
+    assert entry["topic"] == "базы данных"
+    assert entry["tags"] == ["postgres"]
+    assert calls, "extractor должен получить чанки"
+    assert report.warnings == []
+
+
+def test_index_files_extractor_failure_is_soft(tmp_path):
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+    def extractor(chunks):
+        raise ConnectionError("LM Studio лежит")
+
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
+        report = index_files([f], parser, embedder, storage, registry, "m",
+                             metadata_extractor=extractor)
+    assert report.files_ok == 1 and report.files_failed == 0  # индексация не пострадала
+    entry = registry.get(str(f.resolve()))
+    assert entry["title"] == f.stem       # заглушка — имя файла без расширения
+    assert entry["author"] is None
+    assert entry["tags"] == []
+    assert len(report.warnings) == 1
+    assert "метаданные не извлечены" in report.warnings[0][1]
+
+
+def test_index_files_no_extractor_uses_stub_title(tmp_path):
+    f = tmp_path / "a.md"; f.write_text("# A\n\ntext")
+    storage, registry = InMemoryStorage(), InMemoryRegistry()
+    parser, embedder = MagicMock(), MagicMock()
+    embedder.embed.return_value = np.ones((1, 384), dtype=np.float32)
+    with patch("docling_rag.core.indexer.chunk_document", return_value=[_chunk(str(f.resolve()))]):
+        report = index_files([f], parser, embedder, storage, registry, "m",
+                             metadata_extractor=None)
+    assert registry.get(str(f.resolve()))["title"] == f.stem
+    assert report.warnings == []
+
+
+def test_index_files_reports_metadata_step(monkeypatch):
+    """по образцу test_index_files_reports_progress_steps: собрать шаги в список"""
+    from pathlib import Path
+
+    import docling_rag.core.indexer as indexer_mod
+    from docling_rag.core.chunker import Chunk
+    from docling_rag.core.metadata import DocMeta
+
+    fake_chunks = [
+        Chunk(text="t0", source_file="/x.pdf", chunk_id=0, page_number=1,
+              element_type="text", headings=[], context_text="t0"),
+    ]
+    monkeypatch.setattr(indexer_mod, "chunk_document", lambda *a, **k: fake_chunks)
+
+    parser = MagicMock()
+    embedder = MagicMock()
+    embedder.embed.side_effect = lambda texts, batch_size=128: np.ones((len(texts), 4), dtype=np.float32)
+
+    steps_with_extractor = []
+    indexer_mod.index_files(
+        [Path("/x.pdf")], parser, embedder, InMemoryStorage(), InMemoryRegistry(),
+        embedding_model="m",
+        metadata_extractor=lambda chunks: DocMeta(title="T"),
+        on_progress=lambda step, done, total: steps_with_extractor.append(step),
+    )
+
+    steps_without_extractor = []
+    indexer_mod.index_files(
+        [Path("/x.pdf")], parser, embedder, InMemoryStorage(), InMemoryRegistry(),
+        embedding_model="m",
+        metadata_extractor=None,
+        on_progress=lambda step, done, total: steps_without_extractor.append(step),
+    )
+
+    assert steps_with_extractor == ["parsing", "chunking", "metadata", "embedding", "storing"]
+    assert steps_without_extractor == ["parsing", "chunking", "embedding", "storing"]
