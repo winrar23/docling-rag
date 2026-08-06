@@ -203,6 +203,31 @@ def test_init_schema_adds_id_to_legacy_documents(db_url):
     assert row[0] is not None  # backfill сработал
 
 
+@pytest.mark.integration
+def test_schema_has_author_and_warning_columns(db_url):
+    """Миграция: author в documents, warning в jobs. Идемпотентна при повторном init."""
+    import psycopg
+
+    from docling_rag.storage.db_schema import init_schema
+
+    init_schema(db_url)  # повторный init — миграция идемпотентна
+    with psycopg.connect(db_url) as conn:
+        cols = {
+            r[0] for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'documents'"
+            ).fetchall()
+        }
+        job_cols = {
+            r[0] for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_name = 'jobs'"
+            ).fetchall()
+        }
+    assert "author" in cols
+    assert "warning" in job_cols
+
+
 class TestDomainErrorTranslation:
     """Реальный psycopg-стек -> доменные исключения (core/errors.py)."""
 

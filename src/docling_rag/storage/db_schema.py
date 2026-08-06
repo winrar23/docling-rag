@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS documents (
     source_file text PRIMARY KEY,
     id          uuid NOT NULL DEFAULT gen_random_uuid(),
     title       text,
+    author      text,
     topic       text,
     tags        text[] NOT NULL DEFAULT '{}',
     added_at    timestamptz NOT NULL DEFAULT now()
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     chunks_total  integer,
     chunks_done   integer,
     error         text,
+    warning       text,
     attempts      integer NOT NULL DEFAULT 0,
     created_at    timestamptz NOT NULL DEFAULT now(),
     started_at    timestamptz,
@@ -71,6 +73,11 @@ CREATE INDEX IF NOT EXISTS jobs_status_created_idx ON jobs (status, created_at);
 -- существующих баз — тот же приём, что documents.id в 4-B; применяется явным init.
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ocr text NOT NULL DEFAULT 'auto';
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS ocr_lang text NOT NULL DEFAULT 'en';
+
+-- Авто-метаданные (2026-08-06): author в documents, warning шага metadata в jobs.
+-- Идемпотентная миграция для существующих баз; применяется явным init.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS author text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS warning text;
 """
 
 
