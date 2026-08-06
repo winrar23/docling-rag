@@ -31,3 +31,12 @@ def test_upsert_preserves_id():
     id1 = reg.load()["/a.pdf"]["id"]
     reg.upsert("/a.pdf", "A2", None, [])
     assert reg.load()["/a.pdf"]["id"] == id1
+
+
+def test_inmemory_registry_upsert_and_read_author():
+    reg = InMemoryRegistry()
+    reg.upsert("/b.pdf", title="T", topic="db", tags=["a"], author="Иванов И.")
+    assert reg.get("/b.pdf")["author"] == "Иванов И."
+    # COALESCE-семантика: None не затирает
+    reg.upsert("/b.pdf", title=None, topic=None, tags=[], author=None)
+    assert reg.get("/b.pdf")["author"] == "Иванов И."

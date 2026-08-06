@@ -77,11 +77,12 @@ class InMemoryRegistry:
     def __init__(self) -> None:
         self._docs: dict[str, dict] = {}
 
-    def upsert(self, source_file, title, topic, tags) -> None:
+    def upsert(self, source_file, title, topic, tags, author=None) -> None:
         existing = self._docs.get(source_file, {})
         self._docs[source_file] = {
             "id": existing.get("id", str(uuid.uuid4())),
             "title": title if title is not None else existing.get("title"),
+            "author": author if author is not None else existing.get("author"),
             "topic": topic if topic is not None else existing.get("topic"),
             "tags": list(tags) if tags else existing.get("tags", []),
             "added_at": existing.get("added_at", datetime.now().isoformat(timespec="seconds")),

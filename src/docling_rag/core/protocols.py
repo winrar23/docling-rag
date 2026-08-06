@@ -68,8 +68,9 @@ class DocumentRegistryBackend(Protocol):
         title: str | None,
         topic: str | None,
         tags: list[str],
+        author: str | None = None,
     ) -> None:
-        """Add or update document entry. Preserves added_at on re-index."""
+        """Add or update document entry. Preserves added_at; None не затирает существующие."""
         ...
 
     def delete(self, source_file: str) -> None:

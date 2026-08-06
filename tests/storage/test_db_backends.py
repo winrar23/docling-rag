@@ -173,6 +173,14 @@ class TestDBRegistry:
         assert s.count_by_source("/books/a.pdf") == 0
         r.delete("/books/a.pdf")  # идемпотентно
 
+    def test_db_registry_author_roundtrip_and_coalesce(self, clean_db):
+        r = self._registry(clean_db)
+        r.upsert("/b.pdf", title="T", topic="db", tags=["a"], author="Иванов И.")
+        assert r.get("/b.pdf")["author"] == "Иванов И."
+        assert r.load()["/b.pdf"]["author"] == "Иванов И."
+        r.upsert("/b.pdf", title=None, topic=None, tags=[], author=None)
+        assert r.get("/b.pdf")["author"] == "Иванов И."
+
 
 def test_documents_have_uuid_id_and_get_by_id(clean_db):
     from docling_rag.storage.db_registry import DBRegistry
