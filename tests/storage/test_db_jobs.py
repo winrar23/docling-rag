@@ -21,9 +21,9 @@ def jobs(clean_db):
 
 
 def test_create_get_lifecycle(jobs):
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", "T", "topic", ["a", "b"])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     job = jobs.get(jid)
-    assert job["status"] == "queued" and job["tags"] == ["a", "b"]
+    assert job["status"] == "queued"
     assert job["source_file"] == "/uploads/b.pdf"
 
     claimed = jobs.claim_next()
@@ -39,14 +39,14 @@ def test_create_get_lifecycle(jobs):
 
 
 def test_find_active_and_dedup(jobs):
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     assert jobs.find_active_by_source("/uploads/b.pdf")["id"] == jid
     jobs.claim_next(); jobs.complete(jid, 1)
     assert jobs.find_active_by_source("/uploads/b.pdf") is None
 
 
 def test_fail_sets_error(jobs):
-    jid = jobs.create("/uploads/x.pdf", "x.pdf", None, None, [])
+    jid = jobs.create("/uploads/x.pdf", "x.pdf")
     jobs.claim_next()
     jobs.fail(jid, "parse boom")
     assert jobs.get(jid)["status"] == "failed" and jobs.get(jid)["error"] == "parse boom"
@@ -54,7 +54,7 @@ def test_fail_sets_error(jobs):
 
 def test_requeue_stale(jobs, clean_db):
     import psycopg
-    jid = jobs.create("/uploads/s.pdf", "s.pdf", None, None, [])
+    jid = jobs.create("/uploads/s.pdf", "s.pdf")
     jobs.claim_next()
     with psycopg.connect(clean_db) as conn:  # состарить heartbeat
         conn.execute("UPDATE jobs SET updated_at = now() - interval '120 seconds' WHERE id = %s::uuid", (jid,))
@@ -65,7 +65,7 @@ def test_requeue_stale(jobs, clean_db):
 
 def test_requeue_stale_exhausted_attempts_preserves_step(jobs, clean_db):
     import psycopg
-    jid = jobs.create("/uploads/s.pdf", "s.pdf", None, None, [])
+    jid = jobs.create("/uploads/s.pdf", "s.pdf")
     jobs.claim_next()
     with psycopg.connect(clean_db) as conn:  # исчерпать попытки + состарить heartbeat
         conn.execute(
@@ -94,8 +94,8 @@ def test_claim_next_skip_locked_concurrent(jobs, clean_db):
     import threading
     import psycopg
 
-    j1 = jobs.create("/uploads/1.pdf", "1.pdf", None, None, [])
-    j2 = jobs.create("/uploads/2.pdf", "2.pdf", None, None, [])
+    j1 = jobs.create("/uploads/1.pdf", "1.pdf")
+    j2 = jobs.create("/uploads/2.pdf", "2.pdf")
     with psycopg.connect(clean_db) as conn:  # j1 старше — первый claim возьмёт именно её
         conn.execute(
             "UPDATE jobs SET created_at = now() - interval '10 seconds' WHERE id = %s::uuid", (j1,)
@@ -122,7 +122,7 @@ def test_claim_next_skip_locked_concurrent(jobs, clean_db):
 def test_heartbeat_advances_updated_at(jobs, clean_db):
     import psycopg
 
-    jid = jobs.create("/uploads/h.pdf", "h.pdf", None, None, [])
+    jid = jobs.create("/uploads/h.pdf", "h.pdf")
     jobs.claim_next()
     with psycopg.connect(clean_db) as conn:  # состарить heartbeat
         conn.execute(
@@ -138,9 +138,9 @@ def test_heartbeat_advances_updated_at(jobs, clean_db):
 def test_list_orders_limits_and_filters(jobs, clean_db):
     import psycopg
 
-    j1 = jobs.create("/uploads/1.pdf", "1.pdf", None, None, [])
-    j2 = jobs.create("/uploads/2.pdf", "2.pdf", None, None, [])
-    j3 = jobs.create("/uploads/3.pdf", "3.pdf", None, None, [])
+    j1 = jobs.create("/uploads/1.pdf", "1.pdf")
+    j2 = jobs.create("/uploads/2.pdf", "2.pdf")
+    j3 = jobs.create("/uploads/3.pdf", "3.pdf")
     with psycopg.connect(clean_db) as conn:  # детерминированный порядок created_at: j1 < j2 < j3
         for age, jid in ((30, j1), (20, j2), (10, j3)):
             conn.execute(
@@ -156,15 +156,15 @@ def test_list_orders_limits_and_filters(jobs, clean_db):
 
 
 def test_find_latest_by_source_integration(jobs):
-    j1 = jobs.create("/uploads/l.pdf", "l.pdf", None, None, [])
+    j1 = jobs.create("/uploads/l.pdf", "l.pdf")
     jobs.claim_next(); jobs.fail(j1, "x")
-    j2 = jobs.create("/uploads/l.pdf", "l.pdf", None, None, [])
+    j2 = jobs.create("/uploads/l.pdf", "l.pdf")
     assert jobs.find_latest_by_source("/uploads/l.pdf")["id"] == j2
 
 
 def test_update_progress_preserves_counters_when_none(jobs):
     """Шаг STORING шлёт (None, None) — COALESCE не обнуляет счётчики embed'а."""
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next()
     jobs.update_progress(jid, "embedding", chunks_done=5, chunks_total=5)
     jobs.update_progress(jid, "storing")  # (None, None)
@@ -174,7 +174,7 @@ def test_update_progress_preserves_counters_when_none(jobs):
 
 
 def test_jobs_ocr_fields_roundtrip(jobs):
-    jid = jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="off", ocr_lang="ru")
+    jid = jobs.create("/b.pdf", "b.pdf", ocr="off", ocr_lang="ru")
     job = jobs.get(jid)
     assert job["ocr"] == "off" and job["ocr_lang"] == "ru"
     claimed = None
@@ -185,9 +185,18 @@ def test_jobs_ocr_fields_roundtrip(jobs):
 
 
 def test_jobs_ocr_defaults_in_db(jobs):
-    jid = jobs.create("/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/b.pdf", "b.pdf")
     job = jobs.get(jid)
     assert job["ocr"] == "auto" and job["ocr_lang"] == "en"
+
+
+def test_db_jobs_create_without_metadata_and_set_warning(jobs):
+    jid = jobs.create("/u/b.pdf", "b.pdf", ocr="on", ocr_lang="ru")
+    job = jobs.get(jid)
+    assert "title" not in job and "topic" not in job and "tags" not in job
+    assert job["warning"] is None
+    jobs.set_warning(jid, "метаданные не извлечены: LLM недоступна")
+    assert jobs.get(jid)["warning"] == "метаданные не извлечены: LLM недоступна"
 
 
 def test_init_schema_twice_keeps_ocr_columns(db_url):

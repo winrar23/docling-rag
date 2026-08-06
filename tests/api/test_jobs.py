@@ -18,7 +18,7 @@ def client():
 
 def test_get_job_returns_status_and_liveness(client):
     c, jobs = client
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", "T", None, ["x"])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next()
     jobs.update_progress(jid, "embedding", chunks_done=3, chunks_total=10)
 
@@ -38,14 +38,14 @@ def test_get_unknown_job_404(client):
 def test_list_jobs(client):
     c, jobs = client
     for i in range(2):
-        jobs.create(f"/uploads/{i}.pdf", f"{i}.pdf", None, None, [])
+        jobs.create(f"/uploads/{i}.pdf", f"{i}.pdf")
     resp = c.get("/jobs?limit=10")
     assert resp.status_code == 200 and len(resp.json()) == 2
 
 
 def test_get_queued_job_has_null_elapsed(client):
     c, jobs = client
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])  # queued, never claimed
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")  # queued, never claimed
     body = c.get(f"/jobs/{jid}").json()
     assert body["status"] == "queued" and body["elapsed_sec"] is None
 
@@ -62,8 +62,8 @@ def test_list_jobs_rejects_unknown_status(client):
 
 def test_list_jobs_filters_by_valid_status(client):
     c, jobs = client
-    jobs.create("/uploads/a.pdf", "a.pdf", None, None, [])
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jobs.create("/uploads/a.pdf", "a.pdf")
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next()  # a.pdf -> running
     resp = c.get("/jobs?status=queued")
     assert resp.status_code == 200
@@ -75,7 +75,7 @@ def test_terminal_job_liveness_frozen_at_finished_at(client):
     from datetime import datetime, timedelta, timezone
 
     c, jobs = client
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next()
     jobs.complete(jid, chunks_added=3)
     now = datetime.now(timezone.utc)
@@ -93,7 +93,7 @@ def test_get_job_exposes_ocr_fields():
     app.dependency_overrides[get_jobs] = lambda: jobs
     try:
         c = TestClient(app)
-        jid = jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="on", ocr_lang="ru")
+        jid = jobs.create("/b.pdf", "b.pdf", ocr="on", ocr_lang="ru")
         resp = c.get(f"/jobs/{jid}")
         assert resp.status_code == 200
         body = resp.json()

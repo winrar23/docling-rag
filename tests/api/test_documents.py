@@ -33,7 +33,7 @@ def test_post_documents_accepts_pdf_returns_202(client):
     body = resp.json()
     assert body["status"] == "queued" and body["job_id"]
     job = jobs.get(body["job_id"])
-    assert job["original_name"] == "book.pdf" and job["tags"] == ["arch", "data"]
+    assert job["original_name"] == "book.pdf"
     assert (uploads / "book.pdf").read_bytes() == b"%PDF-1.4 fake"
 
 

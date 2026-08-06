@@ -123,20 +123,21 @@ class InMemoryJobs:
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
 
-    def create(self, source_file, original_name, title, topic, tags,
-               ocr="auto", ocr_lang="en") -> str:
+    def create(self, source_file, original_name, ocr="auto", ocr_lang="en") -> str:
         self._seq += 1
         jid = str(self._seq)
         now = self._now()
         self._rows[jid] = {
             "id": jid, "source_file": source_file, "original_name": original_name,
-            "title": title, "topic": topic, "tags": list(tags),
             "ocr": ocr, "ocr_lang": ocr_lang,
             "status": "queued", "step": None, "chunks_done": None, "chunks_total": None,
-            "error": None, "attempts": 0,
+            "error": None, "warning": None, "attempts": 0,
             "created_at": now, "started_at": None, "updated_at": now, "finished_at": None,
         }
         return jid
+
+    def set_warning(self, job_id, warning):
+        self._rows[job_id]["warning"] = warning
 
     def get(self, job_id):
         row = self._rows.get(job_id)

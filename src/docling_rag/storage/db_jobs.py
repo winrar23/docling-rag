@@ -7,8 +7,8 @@ from psycopg.rows import dict_row
 
 from docling_rag.storage.db_storage import _translate_db_errors
 
-_COLS = ("id, source_file, original_name, title, topic, tags, status, step, "
-         "chunks_total, chunks_done, error, attempts, created_at, started_at, "
+_COLS = ("id, source_file, original_name, status, step, "
+         "chunks_total, chunks_done, error, warning, attempts, created_at, started_at, "
          "updated_at, finished_at, ocr, ocr_lang")
 
 
@@ -28,16 +28,23 @@ class DBJobs:
     def _connect(self) -> psycopg.Connection:
         return psycopg.connect(self._dsn, row_factory=dict_row)
 
-    def create(self, source_file, original_name, title, topic, tags,
-               ocr="auto", ocr_lang="en") -> str:
+    def create(self, source_file, original_name, ocr="auto", ocr_lang="en") -> str:
         with _translate_db_errors(), self._connect() as conn:
             row = conn.execute(
-                "INSERT INTO jobs (source_file, original_name, title, topic, tags, ocr, ocr_lang)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (source_file, original_name, title, topic, list(tags), ocr, ocr_lang),
+                "INSERT INTO jobs (source_file, original_name, ocr, ocr_lang)"
+                " VALUES (%s, %s, %s, %s) RETURNING id",
+                (source_file, original_name, ocr, ocr_lang),
             ).fetchone()
             conn.commit()
         return str(row["id"])
+
+    def set_warning(self, job_id, warning):
+        with _translate_db_errors(), self._connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET warning=%s, updated_at=now() WHERE id = %s::uuid",
+                (warning, job_id),
+            )
+            conn.commit()
 
     def get(self, job_id):
         try:

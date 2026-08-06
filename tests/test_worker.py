@@ -14,7 +14,7 @@ def _deps():
 
 def test_process_one_job_success_marks_done():
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", "T", None, ["x"])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     job = jobs.claim_next()
 
     def fake_index(files, *a, on_progress=None, **k):
@@ -28,7 +28,7 @@ def test_process_one_job_success_marks_done():
 
 def test_process_one_job_zero_chunks_marks_failed():
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     job = jobs.claim_next()
     process_one_job(jobs, _deps(), job,
                     index_fn=lambda *a, **k: IndexReport(chunks_added=0, files_ok=1))
@@ -37,7 +37,7 @@ def test_process_one_job_zero_chunks_marks_failed():
 
 def test_process_one_job_exception_marks_failed():
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     job = jobs.claim_next()
 
     def boom(*a, **k):
@@ -53,7 +53,7 @@ def test_process_one_job_embed_unavailable_stays_running_not_failed():
     уронить) не должен терминально фейлить джобу — postgres-то жив. Джоба остаётся
     running и вернётся в очередь через requeue_stale по устаревшему heartbeat."""
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     job = jobs.claim_next()
 
     def boom(*a, **k):
@@ -68,7 +68,7 @@ def test_process_one_job_embed_unavailable_stays_running_not_failed():
 
 def test_make_progress_writes_step_to_job():
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next()
     cb = make_progress(jobs, jid)
     cb(EMBEDDING, 3, 10)
@@ -83,7 +83,7 @@ def test_run_loop_survives_transient_claim_failure(capsys):
     from docling_rag.worker.runner import run_loop
 
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     stop = threading.Event()
     calls = {"n": 0}
 
@@ -123,7 +123,7 @@ def test_run_loop_survives_embed_service_unavailable(capsys):
     from docling_rag.worker.runner import run_loop
 
     jobs = InMemoryJobs()
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     stop = threading.Event()
 
     def boom(*a, **k):
@@ -170,7 +170,7 @@ def test_build_deps_uses_embed_url_config(monkeypatch):
 
 def test_process_one_job_passes_ocr_params():
     jobs = InMemoryJobs()
-    jobs.create("/b.pdf", "b.pdf", None, None, [], ocr="off", ocr_lang="ru")
+    jobs.create("/b.pdf", "b.pdf", ocr="off", ocr_lang="ru")
     job = jobs.claim_next()
     deps = _deps()
     seen = {}
@@ -187,7 +187,7 @@ def test_process_one_job_passes_ocr_params():
 def test_process_one_job_ocr_defaults_for_legacy_jobs():
     """Старые джобы без ключей ocr — дефолты auto/en (job.get)."""
     jobs = InMemoryJobs()
-    jobs.create("/b.pdf", "b.pdf", None, None, [])
+    jobs.create("/b.pdf", "b.pdf")
     job = jobs.claim_next()
     del job["ocr"], job["ocr_lang"]  # эмуляция строки, созданной до миграции
     deps = _deps()

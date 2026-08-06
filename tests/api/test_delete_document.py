@@ -62,7 +62,7 @@ def test_delete_active_job_409(client):
     c, jobs, registry, storage, uploads = client
     source = str(uploads / "b.pdf")
     doc_id = _seed(registry, storage, source)
-    jid = jobs.create(source, "b.pdf", None, None, [])  # queued
+    jid = jobs.create(source, "b.pdf")  # queued
     resp = c.delete(f"/documents/{doc_id}")
     assert resp.status_code == 409
     assert resp.json()["detail"]["job_id"] == jid

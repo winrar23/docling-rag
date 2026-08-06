@@ -284,7 +284,7 @@ def create_document(  # sync def: FastAPI уводит в threadpool — фай�
     os.makedirs(uploads_dir, exist_ok=True)
     _save_upload(file.file, source_file, int(settings["max_upload_mb"]) * 1024 * 1024)
 
-    job_id = jobs.create(source_file, name, title, topic, tags, ocr=ocr, ocr_lang=ocr_lang)
+    job_id = jobs.create(source_file, name, ocr=ocr, ocr_lang=ocr_lang)
     return {"job_id": job_id, "status": "queued"}
 
 

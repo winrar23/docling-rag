@@ -35,7 +35,7 @@ def _seed_doc(registry, storage, source="/uploads/b.pdf", title="B", chunks=2):
 def test_list_documents_card_shape(client):
     c, jobs, registry, storage = client
     _seed_doc(registry, storage)
-    jid = jobs.create("/uploads/b.pdf", "b.pdf", "B", None, [])
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next(); jobs.complete(jid, 2)
 
     body = c.get("/documents").json()
@@ -79,8 +79,8 @@ def test_get_document_by_id_and_404(client):
 
 def test_find_latest_by_source_returns_newest_any_status():
     jobs = InMemoryJobs()
-    j1 = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    j1 = jobs.create("/uploads/b.pdf", "b.pdf")
     jobs.claim_next(); jobs.fail(j1, "boom")
-    j2 = jobs.create("/uploads/b.pdf", "b.pdf", None, None, [])
+    j2 = jobs.create("/uploads/b.pdf", "b.pdf")
     assert jobs.find_latest_by_source("/uploads/b.pdf")["id"] == j2
     assert jobs.find_latest_by_source("/uploads/none.pdf") is None

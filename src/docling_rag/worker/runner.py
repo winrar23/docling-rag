@@ -66,7 +66,7 @@ def process_one_job(jobs: JobBackend, deps: WorkerDeps, job: dict, index_fn=inde
         report = index_fn(
             [Path(job["source_file"])], deps.parser, deps.embedder, deps.storage, deps.registry,
             embedding_model=deps.embedding_model, chunk_max_tokens=deps.chunk_max_tokens,
-            title=job["title"], topic=job["topic"], tags=job["tags"] or (),
+            title=None, topic=None, tags=(),
             ocr=job.get("ocr", "auto"), ocr_lang=job.get("ocr_lang", "en"),
             on_progress=make_progress(jobs, job_id),
         )

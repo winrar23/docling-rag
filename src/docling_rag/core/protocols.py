@@ -103,13 +103,12 @@ class JobBackend(Protocol):
     - docling_rag.storage.db_jobs.DBJobs (PostgreSQL, очередь через FOR UPDATE SKIP LOCKED)
     - tests.fakes.InMemoryJobs (unit tests)
 
-    Job-dict: id, source_file, original_name, title, topic, tags, status
-    (queued|running|done|failed), step, chunks_done, chunks_total, error,
+    Job-dict: id, source_file, original_name, status
+    (queued|running|done|failed), step, chunks_done, chunks_total, error, warning,
     attempts, created_at, started_at, updated_at, finished_at, ocr, ocr_lang.
     """
 
     def create(self, source_file: str, original_name: str,
-               title: str | None, topic: str | None, tags: list[str],
                ocr: str = "auto", ocr_lang: str = "en") -> str:
         """Insert a queued job. Return job_id."""
         ...
@@ -150,6 +149,10 @@ class JobBackend(Protocol):
 
     def fail(self, job_id: str, error: str) -> None:
         """Mark failed with error text."""
+        ...
+
+    def set_warning(self, job_id: str, warning: str) -> None:
+        """Записать предупреждение (не-фатальный сбой шага metadata)."""
         ...
 
     def requeue_stale(self, stale_seconds: int, max_attempts: int) -> int:
