@@ -25,12 +25,10 @@ def test_ask_end_to_end_with_mocked_llm(runner, e2e_config, tmp_path):
     doc = tmp_path / "test_doc.md"
     doc.write_text("# Architecture\n\nData Vault uses hubs, links, and satellites.\n")
 
-    # 3. Add document (uses real Docling + embedder + postgres)
-    result = runner.invoke(main, [
-        "add", str(doc),
-        "--title", "Test Architecture",
-        "--topic", "data vault",
-    ])
+    # 3. Add document (uses real Docling + embedder + postgres). auto_metadata выключен
+    # герметичными дефолтами (e2e_config наследует hermetic_config) — флагов --title/--topic
+    # больше нет, а этот тест не опирается на извлечённые метаданные (только на "ask").
+    result = runner.invoke(main, ["add", str(doc)])
     assert result.exit_code == 0
     assert "chunk" in result.output.lower()
 

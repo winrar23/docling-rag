@@ -72,7 +72,13 @@ def test_add_with_tags_and_search_filter(runner, e2e_config, tmp_path):
     """
     End-to-end: index two docs with different tags, search with --tag filter
     returns only results from the matching doc.
+
+    auto_metadata выключен герметичными дефолтами (e2e_config наследует hermetic_config) —
+    add больше не принимает --title/--topic/--tag, метаданные проставляются напрямую
+    через DBRegistry.update_metadata ПОСЛЕ индексации (LM Studio для этого теста не нужен).
     """
+    from docling_rag.storage.db_registry import DBRegistry
+
     # Two minimal markdown files that parse fast
     doc_arch = tmp_path / "architecture.md"
     doc_arch.write_text("Hexagonal architecture separates core logic from adapters.")
@@ -80,23 +86,20 @@ def test_add_with_tags_and_search_filter(runner, e2e_config, tmp_path):
     doc_data = tmp_path / "data_engineering.md"
     doc_data.write_text("Data pipelines move and transform data between systems.")
 
-    # Index first doc with tag=arch
-    result = runner.invoke(main, [
-        "add", str(doc_arch),
-        "--title", "Arch Book",
-        "--topic", "architecture",
-        "--tag", "arch",
-    ], catch_exceptions=False)
+    # Index first doc
+    result = runner.invoke(main, ["add", str(doc_arch)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
 
-    # Index second doc with tag=data
-    result = runner.invoke(main, [
-        "add", str(doc_data),
-        "--title", "Data Book",
-        "--topic", "data engineering",
-        "--tag", "data",
-    ], catch_exceptions=False)
+    # Index second doc
+    result = runner.invoke(main, ["add", str(doc_data)], catch_exceptions=False)
     assert result.exit_code == 0, result.output
+
+    # Metadata (title/topic/tags) — вручную через registry, не флагами add
+    reg = DBRegistry(e2e_config["database_url"])
+    reg.update_metadata(str(doc_arch.resolve()),
+                        {"title": "Arch Book", "topic": "architecture", "tags": ["arch"]})
+    reg.update_metadata(str(doc_data.resolve()),
+                        {"title": "Data Book", "topic": "data engineering", "tags": ["data"]})
 
     # Search without filter — should return results from both docs
     result = runner.invoke(main, [
@@ -184,7 +187,7 @@ def test_search_api_e2e_real_model(clean_db, tmp_path):
     embedder = Embedder(model_name="deepvk/USER-bge-m3")
     storage, registry = DBStorage(dsn), DBRegistry(dsn)
     report = index_files([md], Parser(), embedder, storage, registry,
-                         embedding_model="deepvk/USER-bge-m3", title="Mini")
+                         embedding_model="deepvk/USER-bge-m3")
     assert report.chunks_added >= 1
 
     app.dependency_overrides[get_settings] = lambda: {

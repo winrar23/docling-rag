@@ -99,6 +99,69 @@ def test_add_skips_txt_files(runner, tmp_path):
     assert "Нет поддерживаемых файлов" in result.output
 
 
+def test_add_has_no_metadata_flags(runner, fake_backends):
+    from docling_rag.cli.commands import main
+
+    result = runner.invoke(main, ["add", "--help"])
+    assert "--title" not in result.output
+    assert "--topic" not in result.output
+    assert "--tag" not in result.output
+
+
+def test_add_prints_extracted_metadata(runner, fake_backends, tmp_path, monkeypatch):
+    """Extracted metadata (from get_metadata_extractor) is printed per file."""
+    from docling_rag.core.metadata import DocMeta
+
+    monkeypatch.setattr(
+        "docling_rag.cli.commands.get_metadata_extractor",
+        lambda cfg, registry: lambda chunks: DocMeta(
+            title="Книга", author="Автор А.", topic="базы данных", tags=["postgres"]),
+    )
+    f = tmp_path / "book.md"
+    f.write_text("# Book\n\nContent here.\n")
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "Content here."
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, ["add", str(f)])
+
+    assert result.exit_code == 0
+    assert "Метаданные: Книга — Автор А. (базы данных; теги: postgres)" in result.output
+
+
+def test_add_warns_when_extraction_failed(runner, fake_backends, tmp_path, monkeypatch):
+    """Extraction failures are fail-soft: warning printed, exit code unaffected."""
+
+    def broken(cfg, registry):
+        def _raise(chunks):
+            raise ConnectionError("нет LLM")
+        return _raise
+
+    monkeypatch.setattr("docling_rag.cli.commands.get_metadata_extractor", broken)
+    f = tmp_path / "book.md"
+    f.write_text("# Book\n\nContent here.\n")
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "Content here."
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, ["add", str(f)])
+
+    assert result.exit_code == 0                       # fail-soft: код возврата не меняется
+    assert "метаданные не извлечены" in result.output   # CliRunner мешает stdout+stderr
+
+
 def test_search_command_returns_results(runner):
     mock_results = [
         ({"text": "SQL query example SELECT *", "source_file": "doc.pdf",
@@ -344,8 +407,17 @@ def test_search_without_results_does_not_log(runner, hermetic_search_log):
     assert hermetic_search_log.entries == []
 
 
-def test_add_command_calls_registry_upsert(runner, tmp_path):
-    """add with --title/--topic/--tag calls DBRegistry.upsert with correct args."""
+def test_add_extracted_metadata_passed_to_registry_upsert(runner, tmp_path, monkeypatch):
+    """When metadata_extractor produces a DocMeta, its fields (incl. author) must reach
+    registry.upsert — not just the printed output (see test_add_prints_extracted_metadata).
+    Flags --title/--topic/--tag no longer exist; metadata comes from the extractor."""
+    from docling_rag.core.metadata import DocMeta
+
+    monkeypatch.setattr(
+        "docling_rag.cli.commands.get_metadata_extractor",
+        lambda cfg, registry: lambda chunks: DocMeta(
+            title="My Book", author="Jane Doe", topic="architecture", tags=["arch", "solid"]),
+    )
     test_doc = tmp_path / "book.md"
     test_doc.write_text("# Book\n\nContent here.\n")
 
@@ -360,14 +432,9 @@ def test_add_command_calls_registry_upsert(runner, tmp_path):
         mock_chunk.context_text = "Content here."
         MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
 
-        result = runner.invoke(main, [
-            "add", str(test_doc),
-            "--title", "My Book",
-            "--topic", "architecture",
-            "--tag", "arch",
-            "--tag", "solid",
-        ])
+        result = runner.invoke(main, ["add", str(test_doc)])
 
     assert result.exit_code == 0
     MockRegistry.return_value.upsert.assert_called_once_with(
@@ -375,11 +442,12 @@ def test_add_command_calls_registry_upsert(runner, tmp_path):
         title="My Book",
         topic="architecture",
         tags=["arch", "solid"],
+        author="Jane Doe",
     )
 
 
 def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
-    """add without metadata flags calls upsert with None/empty."""
+    """add without an extractor (auto_metadata off) upserts stem-title fallback + None/empty."""
     test_doc = tmp_path / "plain.md"
     test_doc.write_text("# Plain\n\nText.\n")
 
@@ -400,9 +468,10 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
     assert result.exit_code == 0
     MockRegistry.return_value.upsert.assert_called_once_with(
         str(test_doc.resolve()),
-        title=None,
+        title="plain",  # заглушка title = stem: metadata_extractor выключен (auto_metadata: False)
         topic=None,
         tags=[],
+        author=None,
     )
 
 
@@ -478,7 +547,7 @@ def test_add_uses_resolved_path_as_source(runner, tmp_path):
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
         runner.invoke(main, ["add", str(test_doc)])
     MockRegistry.return_value.upsert.assert_called_once_with(
-        str(test_doc.resolve()), title=None, topic=None, tags=[],
+        str(test_doc.resolve()), title="c", topic=None, tags=[], author=None,
     )
 
 

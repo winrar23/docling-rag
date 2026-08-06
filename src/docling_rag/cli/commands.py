@@ -13,6 +13,7 @@ from docling_rag.core.errors import (
     cause_chain,
 )
 from docling_rag.core.indexer import index_files
+from docling_rag.core.metadata import get_metadata_extractor
 from docling_rag.core.parser import Parser, SUPPORTED_EXTENSIONS, OCR_LANGS, OCR_MODES
 from docling_rag.core.protocols import SearchLogBackend, StorageBackend
 from docling_rag.core.search import resolve_allowed_sources, run_search
@@ -82,9 +83,6 @@ def init(config: str | None) -> None:
 @main.command()
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("--config", default=None, help="Path to config.yaml")
-@click.option("--title", default=None, help="Document title")
-@click.option("--topic", default=None, help="Domain/topic of the document")
-@click.option("--tag", "tags", multiple=True, help="Tag (repeatable: --tag arch --tag solid)")
 @click.option("--ocr", default="auto", type=click.Choice(OCR_MODES),
               help="OCR: auto — по детекту текстового слоя, on/off — принудительно")
 @click.option("--ocr-lang", "ocr_lang", default="en", type=click.Choice(OCR_LANGS),
@@ -92,13 +90,11 @@ def init(config: str | None) -> None:
 def add(
     file_path: str,
     config: str | None,
-    title: str | None,
-    topic: str | None,
-    tags: tuple[str, ...],
     ocr: str,
     ocr_lang: str,
 ) -> None:
-    """Add a document or directory to the index."""
+    """Add a document or directory to the index. Metadata (title/author/topic/tags)
+    is extracted automatically (see auto_metadata in config.yaml)."""
     cfg = _load_cfg(config)
     path = Path(file_path)
     files = list(path.rglob("*.*")) if path.is_dir() else [path]
@@ -111,10 +107,11 @@ def add(
     embedder = get_embedder(cfg)
     storage = get_storage(cfg)
     registry = DBRegistry(cfg["database_url"])
+    extractor = get_metadata_extractor(cfg, registry)
     try:
         report = index_files(files, parser, embedder, storage, registry, cfg["embedding_model"],
-                             chunk_max_tokens=cfg["chunk_max_tokens"], title=title, topic=topic, tags=tags,
-                             ocr=ocr, ocr_lang=ocr_lang)
+                             chunk_max_tokens=cfg["chunk_max_tokens"],
+                             ocr=ocr, ocr_lang=ocr_lang, metadata_extractor=extractor)
     except StorageUnavailableError as e:
         raise _db_unavailable(cfg, e) from e
     except StorageSchemaMissingError as e:
@@ -123,6 +120,20 @@ def add(
         raise _embed_unavailable(e) from e
     for src, err in report.errors:
         click.echo(f"Ошибка при обработке {src}: {err}", err=True)
+    for src, warn in report.warnings:
+        click.echo(f"Предупреждение ({Path(src).name}): {warn}", err=True)
+    for f in files:
+        src = str(Path(f).resolve())
+        if any(s == src for s, _ in report.errors):
+            continue
+        entry = registry.get(src)
+        if entry is None:
+            continue  # файл без чанков — upsert не вызывался
+        tags_str = ", ".join(entry["tags"]) if entry["tags"] else "—"
+        click.echo(
+            f"Метаданные: {entry['title'] or '—'} — {entry['author'] or '—'}"
+            f" ({entry['topic'] or '—'}; теги: {tags_str})"
+        )
     click.echo(f"\nДобавлено {report.chunks_added} chunks из {report.files_ok} файлов.")
     if report.files_failed or report.chunks_added == 0:
         raise SystemExit(1)
