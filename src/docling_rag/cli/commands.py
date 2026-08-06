@@ -123,7 +123,10 @@ def add(
     for src, warn in report.warnings:
         click.echo(f"Предупреждение ({Path(src).name}): {warn}", err=True)
     for f in files:
-        src = str(Path(f).resolve())
+        try:
+            src = str(Path(f).resolve())
+        except (OSError, RuntimeError):
+            continue  # symlink loop/permission: файл уже в report.errors (index_files)
         if any(s == src for s, _ in report.errors):
             continue
         entry = registry.get(src)

@@ -62,6 +62,7 @@ def test_add_command_indexes_file(runner, tmp_path):
         embedder_instance = MockEmbedder.return_value
         storage_instance = MockStorage.return_value
         embedder_instance.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
 
         result = runner.invoke(main, ["add", str(test_doc)])
 
@@ -90,6 +91,38 @@ def test_add_command_skips_file_on_exception(runner, tmp_path):
 
     assert result.exit_code != 0
     assert "Ошибка при обработке" in result.output or "corrupt" in result.output.lower()
+
+
+def test_add_symlink_loop_does_not_crash_metadata_output(runner, fake_backends, tmp_path):
+    """Regression: a symlink loop is isolated by index_files() into report.errors, but the
+    CLI's post-index metadata-print loop used to re-resolve every file's path unguarded —
+    RuntimeError from that second .resolve() escaped past the successfully-indexed files and
+    aborted 'add' entirely, dropping the final summary line. The loop file must be skipped
+    silently (already reported via report.errors/stderr); the healthy file's metadata line
+    and the final summary must still print."""
+    good = tmp_path / "good.md"
+    good.write_text("# Good\n\nContent.\n")
+    loop_a = tmp_path / "loop_a.md"
+    loop_b = tmp_path / "loop_b.md"
+    loop_b.symlink_to(loop_a)
+    loop_a.symlink_to(loop_b)
+
+    with (
+        patch("docling_rag.cli.commands.Parser"),
+        patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
+        patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
+    ):
+        mock_chunk = MagicMock()
+        mock_chunk.context_text = "Content."
+        MockChunkDoc.return_value = [mock_chunk]
+        MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+
+        result = runner.invoke(main, ["add", str(tmp_path)], catch_exceptions=False)
+
+    assert result.exit_code == 1  # files_failed от symlink-петли
+    assert "Ошибка при обработке" in result.output
+    assert "Добавлено 1 chunks из 1 файлов." in result.output
+    assert "Метаданные:" in result.output  # good.md проиндексирован и напечатан, без traceback
 
 
 def test_add_skips_txt_files(runner, tmp_path):
@@ -462,6 +495,7 @@ def test_add_command_without_metadata_flags_upserts_nones(runner, tmp_path):
         mock_chunk.context_text = "Text."
         MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
 
         result = runner.invoke(main, ["add", str(test_doc)])
 
@@ -493,12 +527,13 @@ def test_add_passes_chunk_max_tokens_from_config(runner, tmp_path, hermetic_conf
         patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage"),
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
-        patch("docling_rag.cli.commands.DBRegistry"),
+        patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
         mock_chunk.context_text = "text"
         MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
 
         result = runner.invoke(main, ["add", str(test_doc)])
 
@@ -520,12 +555,13 @@ def test_re_add_same_file_does_not_duplicate(runner, tmp_path):
         patch("docling_rag.cli.commands.get_embedder") as MockEmbedder,
         patch("docling_rag.cli.commands.DBStorage") as MockStorage,
         patch("docling_rag.core.indexer.chunk_document") as MockChunkDoc,
-        patch("docling_rag.cli.commands.DBRegistry"),
+        patch("docling_rag.cli.commands.DBRegistry") as MockRegistry,
     ):
         mock_chunk = MagicMock()
         mock_chunk.context_text = "t"
         MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
         runner.invoke(main, ["add", str(test_doc)])
     expected_source = str(test_doc.resolve())
     MockStorage.return_value.delete_by_source.assert_called_once_with(expected_source)
@@ -545,6 +581,7 @@ def test_add_uses_resolved_path_as_source(runner, tmp_path):
         mock_chunk = MagicMock(); mock_chunk.context_text = "t"
         MockChunkDoc.return_value = [mock_chunk]
         MockEmbedder.return_value.embed.return_value = np.ones((1, 384), dtype=np.float32)
+        MockRegistry.return_value.get.return_value = None  # metadata-print loop: not under test here
         runner.invoke(main, ["add", str(test_doc)])
     MockRegistry.return_value.upsert.assert_called_once_with(
         str(test_doc.resolve()), title="c", topic=None, tags=[], author=None,
