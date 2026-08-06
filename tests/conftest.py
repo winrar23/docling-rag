@@ -17,6 +17,8 @@ _HERMETIC_DEFAULTS = {
     "database_url": "postgresql://test:test@127.0.0.1:1/test",
     "chunk_max_tokens": 512,
     "embed_url": None,
+    # юниты не зовут LLM — шаг metadata выключен герметично
+    "auto_metadata": False,
 }
 
 

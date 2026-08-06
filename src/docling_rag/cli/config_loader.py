@@ -19,6 +19,7 @@ _DEFAULTS = {
     "uploads_dir": "/uploads",
     "max_upload_mb": 100,
     "embed_url": None,
+    "auto_metadata": True,
 }
 
 
