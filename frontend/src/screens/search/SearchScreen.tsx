@@ -1,15 +1,24 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { FileText, Search } from "lucide-react";
 import { api, basename, type SearchParams } from "@/api/client";
+import type { SearchResult } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useDocuments } from "@/screens/documents/DocumentsScreen";
 
-const selectCls =
-  "border-input h-9 rounded-md border bg-transparent px-3 text-sm shadow-xs";
+const chipCls =
+  "border-input text-muted-foreground flex h-8 items-center gap-1.5 rounded-full border bg-background px-3 text-[13px] whitespace-nowrap";
+const chipSelectCls =
+  "text-foreground bg-transparent font-medium outline-none";
+
+function plural(n: number, one: string, few: string, many: string) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
 
 export default function SearchScreen() {
   const [params, setParams] = useState<SearchParams | null>(null);
@@ -27,7 +36,7 @@ export default function SearchScreen() {
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const els = e.currentTarget.elements as typeof e.currentTarget.elements & {
-      q: HTMLInputElement; tag: HTMLSelectElement; topic: HTMLSelectElement; topk: HTMLInputElement;
+      q: HTMLInputElement; tag: HTMLSelectElement; topic: HTMLSelectElement; topk: HTMLSelectElement;
     };
     const q = els.q.value.trim();
     if (!q) return;
@@ -49,51 +58,92 @@ export default function SearchScreen() {
     else setParams(next);
   };
 
+  const results = search.data?.results ?? [];
+  // Группировка по документу с сохранением порядка релевантности
+  const groups: { file: string; items: SearchResult[] }[] = [];
+  for (const r of results) {
+    const g = groups.find((g) => g.file === r.source_file);
+    if (g) g.items.push(r);
+    else groups.push({ file: r.source_file, items: [r] });
+  }
+
   return (
-    <div className="space-y-6 p-6">
-      <h1 className="text-xl font-semibold">Поиск</h1>
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
-        <Input name="q" placeholder="Поисковый запрос…" className="min-w-64 flex-1" />
-        <div className="space-y-1">
-          <Label htmlFor="tag">Тег</Label>
-          <select id="tag" name="tag" className={selectCls} defaultValue="">
-            <option value="">Все</option>
-            {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+    <div className="mx-auto max-w-3xl space-y-5 p-6 pt-10">
+      <form onSubmit={submit} className="space-y-3">
+        <div className="flex gap-2.5">
+          <div className="relative flex-1">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2" />
+            <Input name="q" placeholder="Поисковый запрос…" className="h-9.5 rounded-lg pl-10" />
+          </div>
+          <Button type="submit" className="h-9.5 rounded-lg px-5">Найти</Button>
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="topic">Тема</Label>
-          <select id="topic" name="topic" className={selectCls} defaultValue="">
-            <option value="">Все</option>
-            {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={chipCls}>
+            Тег
+            <select name="tag" defaultValue="" className={chipSelectCls}>
+              <option value="">Все</option>
+              {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <label className={chipCls}>
+            Тема
+            <select name="topic" defaultValue="" className={chipSelectCls}>
+              <option value="">Все</option>
+              {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <label className={chipCls}>
+            Top-k
+            <select name="topk" defaultValue="" className={chipSelectCls}>
+              <option value="">5</option>
+              {[3, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </label>
+          {search.isSuccess && (
+            <span className="text-muted-foreground ml-auto text-[13px] tabular-nums">
+              {results.length} {plural(results.length, "фрагмент", "фрагмента", "фрагментов")}
+            </span>
+          )}
         </div>
-        <div className="space-y-1">
-          <Label htmlFor="topk">Top-k</Label>
-          <Input id="topk" name="topk" type="number" min={1} max={50} placeholder="5" className="w-20" />
-        </div>
-        <Button type="submit">Найти</Button>
       </form>
 
-      {search.isSuccess && search.data.results.length === 0 && (
-        <p className="text-muted-foreground">Ничего не найдено.</p>
+      {search.isSuccess && results.length === 0 && (
+        <p className="text-muted-foreground pt-4">Ничего не найдено.</p>
       )}
-      <div className="space-y-3">
-        {search.data?.results.map((r, i) => (
-          <Card key={i}>
-            <CardContent className="space-y-2 pt-4">
-              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{basename(r.source_file)}</span>
-                {r.page_number != null && <span>стр. {r.page_number}</span>}
-                {r.headings.length > 0 && <span>{r.headings.join(" → ")}</span>}
-                {(r.element_type === "table" || r.element_type === "code") && (
-                  <Badge variant="secondary">{r.element_type}</Badge>
-                )}
-                <span className="ml-auto tabular-nums">{r.score.toFixed(2)}</span>
-              </div>
-              <p className="whitespace-pre-wrap text-sm">{r.text}</p>
-            </CardContent>
-          </Card>
+      <div className="space-y-6 pt-2">
+        {groups.map((g) => (
+          <section key={g.file} className="space-y-2.5">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <FileText className="text-muted-foreground size-3.5" />
+              {basename(g.file)}
+              <Badge variant="secondary" className="rounded-full font-normal">
+                {g.items.length} {plural(g.items.length, "фрагмент", "фрагмента", "фрагментов")}
+              </Badge>
+            </div>
+            <div className="space-y-2.5">
+              {g.items.map((r, i) => (
+                <div key={i} className="rounded-xl border px-4 pt-3.5 pb-4">
+                  <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-[13px]">
+                    {r.page_number != null && <span>стр. {r.page_number}</span>}
+                    {r.headings.length > 0 && <span>· {r.headings.join(" → ")}</span>}
+                    {(r.element_type === "table" || r.element_type === "code") && (
+                      <Badge variant="secondary" className="rounded-full font-normal">{r.element_type}</Badge>
+                    )}
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="bg-muted inline-block h-1 w-16 overflow-hidden rounded-full">
+                        <span
+                          className="bg-primary block h-full"
+                          style={{ width: `${Math.round(Math.min(Math.max(r.score, 0), 1) * 100)}%` }}
+                        />
+                      </span>
+                      <span className="text-foreground font-medium tabular-nums">{r.score.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap">{r.text}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         ))}
       </div>
     </div>

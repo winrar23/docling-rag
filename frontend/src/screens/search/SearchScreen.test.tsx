@@ -100,3 +100,36 @@ test("повторный сабмит идентичного запроса пе
   await user.click(screen.getByRole("button", { name: /найти/i }));
   await waitFor(() => expect(calls).toBe(2));
 });
+
+test("результаты группируются по документу: имя файла один раз, бейджи с числом фрагментов", async () => {
+  mockApi([
+    RESULT,
+    { ...RESULT, text: "Сателлиты хранят атрибуты…", page_number: 91 },
+    { ...RESULT, source_file: "/uploads/other.pdf", text: "Линки связывают хабы…" },
+  ]);
+  renderWithClient(<SearchScreen />);
+  const user = userEvent.setup();
+  await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");
+  await user.click(screen.getByRole("button", { name: /найти/i }));
+  await screen.findByText(/Хабы содержат/);
+  // имя файла — один раз (заголовок группы), а не в каждой карточке
+  expect(screen.getAllByText(/dwh-book\.pdf/)).toHaveLength(1);
+  // бейджи групп: 2 фрагмента у dwh-book, 1 фрагмент у other
+  expect(screen.getByText("2 фрагмента")).toBeInTheDocument();
+  expect(screen.getByText("1 фрагмент")).toBeInTheDocument();
+});
+
+test("счётчик найденного: «N фрагментов» с правильным плюралом", async () => {
+  mockApi([
+    RESULT,
+    { ...RESULT, text: "Сателлиты хранят атрибуты…", page_number: 91 },
+    { ...RESULT, source_file: "/uploads/other.pdf", text: "Линки связывают хабы…" },
+  ]);
+  renderWithClient(<SearchScreen />);
+  const user = userEvent.setup();
+  await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");
+  await user.click(screen.getByRole("button", { name: /найти/i }));
+  await screen.findByText(/Хабы содержат/);
+  // общий счётчик (3 = «фрагмента»); уникален: бейджи групп — «2 фрагмента» и «1 фрагмент»
+  expect(screen.getByText("3 фрагмента")).toBeInTheDocument();
+});
