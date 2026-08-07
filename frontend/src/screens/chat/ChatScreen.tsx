@@ -170,7 +170,6 @@ export default function ChatScreen() {
         />
         <Button
           type="submit"
-          variant="secondary"
           aria-label="Отправить"
           className="size-8 shrink-0 rounded-full"
           disabled={chat.isPending}
