@@ -49,13 +49,13 @@ function SourceChips({
           <HoverCardTrigger asChild>
             <Badge
               variant="outline"
-              className="cursor-pointer transition-colors hover:bg-muted"
+              className="max-w-full cursor-pointer transition-colors hover:bg-muted"
               onClick={(e) => {
                 e.stopPropagation(); // клик по чипу не должен считаться «кликом мимо» и закрывать панель
                 onSelect(s);
               }}
             >
-              📄 {s.file} · стр. {s.page}
+              <span className="truncate">📄 {s.file} · стр. {s.page}</span>
             </Badge>
           </HoverCardTrigger>
           <HoverCardContent className="w-80 text-sm">
