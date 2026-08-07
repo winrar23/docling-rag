@@ -16,6 +16,13 @@ const RESULT = {
   element_type: "text",
 };
 
+// 2 фрагмента dwh-book + 1 фрагмент other — фикстура группировки и счётчика
+const GROUPED = [
+  RESULT,
+  { ...RESULT, text: "Сателлиты хранят атрибуты…", page_number: 91 },
+  { ...RESULT, source_file: "/uploads/other.pdf", text: "Линки связывают хабы…" },
+];
+
 function mockApi(results: unknown[] = [RESULT]) {
   let url = "";
   server.use(
@@ -102,11 +109,7 @@ test("повторный сабмит идентичного запроса пе
 });
 
 test("результаты группируются по документу: имя файла один раз, бейджи с числом фрагментов", async () => {
-  mockApi([
-    RESULT,
-    { ...RESULT, text: "Сателлиты хранят атрибуты…", page_number: 91 },
-    { ...RESULT, source_file: "/uploads/other.pdf", text: "Линки связывают хабы…" },
-  ]);
+  mockApi(GROUPED);
   renderWithClient(<SearchScreen />);
   const user = userEvent.setup();
   await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");
@@ -120,11 +123,7 @@ test("результаты группируются по документу: и�
 });
 
 test("счётчик найденного: «N фрагментов» с правильным плюралом", async () => {
-  mockApi([
-    RESULT,
-    { ...RESULT, text: "Сателлиты хранят атрибуты…", page_number: 91 },
-    { ...RESULT, source_file: "/uploads/other.pdf", text: "Линки связывают хабы…" },
-  ]);
+  mockApi(GROUPED);
   renderWithClient(<SearchScreen />);
   const user = userEvent.setup();
   await user.type(screen.getByPlaceholderText(/поисковый запрос/i), "data vault");

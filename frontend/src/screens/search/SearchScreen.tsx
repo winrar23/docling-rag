@@ -7,18 +7,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDocuments } from "@/screens/documents/DocumentsScreen";
+import { plural } from "@/lib/plural";
 
 const chipCls =
   "border-input text-muted-foreground flex h-8 items-center gap-1.5 rounded-full border bg-background px-3 text-[13px] whitespace-nowrap";
 const chipSelectCls =
   "text-foreground bg-transparent font-medium outline-none";
-
-function plural(n: number, one: string, few: string, many: string) {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
 
 export default function SearchScreen() {
   const [params, setParams] = useState<SearchParams | null>(null);
