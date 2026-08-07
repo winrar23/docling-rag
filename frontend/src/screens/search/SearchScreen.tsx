@@ -6,7 +6,7 @@ import type { SearchResult } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDocuments } from "@/screens/documents/DocumentsScreen";
+import { useDocuments } from "@/api/hooks";
 import { plural } from "@/lib/plural";
 
 const chipCls =

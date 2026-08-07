@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, basename } from "@/api/client";
 import type { DocumentCard, Job } from "@/api/types";
+import { isActive, useDocuments, useJobs } from "@/api/hooks";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -17,12 +18,6 @@ import {
 import EditDialog from "@/screens/documents/EditDialog";
 import UploadDialog from "@/screens/documents/UploadDialog";
 
-export function useDocuments() {
-  return useQuery({ queryKey: ["documents"], queryFn: api.listDocuments });
-}
-
-const isActive = (j: Job) => j.status === "queued" || j.status === "running";
-
 // step из БД null до первого прогресс-тика — фолбэк обязан быть русским (Global Constraints)
 const STATUS_RU: Record<Job["status"], string> = {
   queued: "в очереди",
@@ -30,15 +25,6 @@ const STATUS_RU: Record<Job["status"], string> = {
   done: "готово",
   failed: "ошибка",
 };
-
-export function useJobs() {
-  return useQuery({
-    queryKey: ["jobs"],
-    queryFn: () => api.listJobs(),
-    // поллинг только пока есть активные джобы; иначе не дёргаем API
-    refetchInterval: (query) => (query.state.data?.some(isActive) ? 2000 : false),
-  });
-}
 
 function IndexingSection({ jobs }: { jobs: Job[] }) {
   const visible = jobs.filter((j) => j.status !== "done");
