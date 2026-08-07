@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import EditDialog from "@/screens/documents/EditDialog";
 import UploadDialog from "@/screens/documents/UploadDialog";
 
 export function useDocuments() {
@@ -133,6 +134,7 @@ export default function DocumentsScreen() {
           <TableHeader>
             <TableRow>
               <TableHead>Название</TableHead>
+              <TableHead>Автор</TableHead>
               <TableHead>Тема</TableHead>
               <TableHead>Теги</TableHead>
               <TableHead>Добавлен</TableHead>
@@ -144,7 +146,8 @@ export default function DocumentsScreen() {
             {cards.map((c) => (
               <TableRow key={c.id}>
                 <TableCell title={c.source_file}>{c.title ?? basename(c.source_file)}</TableCell>
-                <TableCell>{c.topic}</TableCell>
+                <TableCell>{c.author ?? "—"}</TableCell>
+                <TableCell>{c.topic ?? "—"}</TableCell>
                 <TableCell className="space-x-1">
                   {c.tags.map((t) => (
                     <Badge key={t} variant="outline">{t}</Badge>
@@ -153,6 +156,7 @@ export default function DocumentsScreen() {
                 <TableCell>{new Date(c.added_at).toLocaleString("ru-RU")}</TableCell>
                 <TableCell className="text-right">{c.chunks}</TableCell>
                 <TableCell className="text-right">
+                  <EditDialog card={c} />
                   <DeleteButton card={c} />
                 </TableCell>
               </TableRow>

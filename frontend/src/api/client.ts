@@ -3,6 +3,7 @@ import type {
   ChatTurn,
   DeleteResponse,
   DocumentCard,
+  DocumentPatchBody,
   Job,
   SearchResponse,
   UploadAccepted,
@@ -82,6 +83,12 @@ export const api = {
   listDocuments: () => request<DocumentCard[]>("/documents"),
   deleteDocument: (id: string) =>
     request<DeleteResponse>(`/documents/${id}`, { method: "DELETE" }),
+  patchDocument: (id: string, body: DocumentPatchBody) =>
+    request<DocumentCard>(`/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
   listJobs: (limit = 100) => request<Job[]>(`/jobs?limit=${limit}`),
   search: (p: SearchParams) => request<SearchResponse>(`/search?${searchQuery(p)}`),
   chat: (message: string, history: ChatTurn[]) =>

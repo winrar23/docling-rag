@@ -30,8 +30,7 @@ export default function UploadDialog() {
     e.preventDefault();
     const fd = new FormData();
     const els = e.currentTarget.elements as typeof e.currentTarget.elements & {
-      file: HTMLInputElement; title: HTMLInputElement; topic: HTMLInputElement;
-      tags: HTMLInputElement; ocr: HTMLSelectElement; ocr_lang: HTMLSelectElement;
+      file: HTMLInputElement; ocr: HTMLSelectElement; ocr_lang: HTMLSelectElement;
     };
     const file = els.file.files?.[0];
     if (!file) {
@@ -41,11 +40,6 @@ export default function UploadDialog() {
       return;
     }
     fd.append("file", file);
-    if (els.title.value.trim()) fd.append("title", els.title.value.trim());
-    if (els.topic.value.trim()) fd.append("topic", els.topic.value.trim());
-    for (const t of els.tags.value.split(",").map((s) => s.trim()).filter(Boolean)) {
-      fd.append("tags", t);
-    }
     fd.append("ocr", els.ocr.value);
     fd.append("ocr_lang", els.ocr_lang.value);
     upload.mutate(fd);
@@ -68,18 +62,9 @@ export default function UploadDialog() {
             <Label htmlFor="file">Файл (PDF, DOCX, MD)</Label>
             <Input id="file" name="file" type="file" accept=".pdf,.docx,.md" required />
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="title">Название</Label>
-            <Input id="title" name="title" placeholder="Опционально" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="topic">Тема</Label>
-            <Input id="topic" name="topic" placeholder="Опционально" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="tags">Теги (через запятую)</Label>
-            <Input id="tags" name="tags" placeholder="arch, solid" />
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Название, автор, тема и теги заполнятся автоматически при индексации.
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="ocr">Режим OCR</Label>

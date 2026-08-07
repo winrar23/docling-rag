@@ -5,6 +5,7 @@ export interface DocumentCard {
   id: string;
   source_file: string;
   title: string | null;
+  author: string | null;
   topic: string | null;
   tags: string[];
   added_at: string; // ISO
@@ -12,19 +13,25 @@ export interface DocumentCard {
   indexing: { status: JobStatus; job_id: string } | null;
 }
 
+// PATCH /documents/{id} — диалог правки шлёт все четыре поля (полная правка карточки)
+export interface DocumentPatchBody {
+  title: string | null;
+  author: string | null;
+  topic: string | null;
+  tags: string[];
+}
+
 // GET /jobs, GET /jobs/{id} (_COLS из db_jobs.py + elapsed/heartbeat из _with_liveness)
 export interface Job {
   id: string;
   source_file: string;
   original_name: string;
-  title: string | null;
-  topic: string | null;
-  tags: string[];
   status: JobStatus;
   step: string | null;
   chunks_total: number | null;
   chunks_done: number | null;
   error: string | null;
+  warning: string | null; // не-фатальный сбой шага metadata
   attempts: number;
   created_at: string;
   started_at: string | null;

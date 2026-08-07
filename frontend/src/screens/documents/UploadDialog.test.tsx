@@ -19,25 +19,31 @@ test("отправляет multipart со всеми form-полями конт�
   await user.click(screen.getByRole("button", { name: /загрузить документ/i }));
   await user.upload(
     // ASCII-имя файла: happy-dom мохибейкает non-ASCII filename в multipart
-    // Content-Disposition (см. отчёт задачи) — кириллица проверяется в title/topic/tags,
-    // это и есть реальный сценарий (OCR-метаданные), а не имя файла
+    // Content-Disposition (см. отчёт задачи) — кириллица покрыта живой приёмкой
     screen.getByLabelText(/файл/i),
     new File(["%PDF"], "scan.pdf", { type: "application/pdf" }),
   );
-  await user.type(screen.getByLabelText(/название/i), "Русский скан");
-  await user.type(screen.getByLabelText(/тема/i), "OCR");
-  await user.type(screen.getByLabelText(/теги/i), "ocr, ru");
   await user.selectOptions(screen.getByLabelText(/режим ocr/i), "on");
   await user.selectOptions(screen.getByLabelText(/язык ocr/i), "ru");
   await user.click(screen.getByRole("button", { name: /^загрузить$/i }));
 
   await waitFor(() => expect(form).not.toBeNull());
   expect((form!.get("file") as File).name).toBe("scan.pdf");
-  expect(form!.get("title")).toBe("Русский скан");
-  expect(form!.get("topic")).toBe("OCR");
-  expect(form!.getAll("tags")).toEqual(["ocr", "ru"]);
   expect(form!.get("ocr")).toBe("on");
   expect(form!.get("ocr_lang")).toBe("ru");
+  // метаданные заполняет LLM на шаге metadata — форма их больше не шлёт
+  expect(form!.get("title")).toBeNull();
+  expect(form!.get("topic")).toBeNull();
+  expect(form!.getAll("tags")).toEqual([]);
+});
+
+test("не содержит полей метаданных — они заполняются автоматически", async () => {
+  renderWithClient(<UploadDialog />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /загрузить документ/i }));
+  expect(screen.queryByLabelText("Название")).toBeNull();
+  expect(screen.queryByLabelText("Тема")).toBeNull();
+  expect(screen.queryByLabelText(/Теги/)).toBeNull();
 });
 
 test("409 (дубль) показывает сообщение бэкенда", async () => {
