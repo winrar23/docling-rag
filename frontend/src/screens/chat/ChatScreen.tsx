@@ -8,31 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Textarea } from "@/components/ui/textarea";
+import { splitParagraphs } from "@/lib/paragraphs";
 
 type Message = ChatTurn & { sources?: ChatSource[] };
-
-// Абзацы текста чанка: \n — граница только после конца предложения,
-// остальные переносы — артефакты PDF-вёрстки, склеиваются пробелом.
-const PARAGRAPH_END = /[.!?:;…]["»)\]]?$/;
-
-export function splitParagraphs(text: string): string[] {
-  const paragraphs: string[] = [];
-  let current = "";
-  for (const line of text.split("\n")) {
-    const fragment = line.trim();
-    if (!fragment) continue;
-    if (!current) {
-      current = fragment;
-    } else if (PARAGRAPH_END.test(current)) {
-      paragraphs.push(current);
-      current = fragment;
-    } else {
-      current += " " + fragment;
-    }
-  }
-  if (current) paragraphs.push(current);
-  return paragraphs;
-}
 
 function SourceChips({
   sources,

@@ -1,7 +1,7 @@
 import { delay, http, HttpResponse } from "msw";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import ChatScreen, { splitParagraphs } from "@/screens/chat/ChatScreen";
+import ChatScreen from "@/screens/chat/ChatScreen";
 import { renderWithClient } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -184,30 +184,6 @@ test("источник без text показывает фолбэк-текст"
   ).toBeInTheDocument();
 });
 
-test("splitParagraphs: граница абзаца после конца предложения", () => {
-  expect(splitParagraphs("А кончилось.\nНовое началось")).toEqual(["А кончилось.", "Новое началось"]);
-});
-
-test("splitParagraphs: PDF-перенос без терминатора склеивается пробелом", () => {
-  expect(splitParagraphs("руководства\nданными, дальше.")).toEqual(["руководства данными, дальше."]);
-});
-
-test("splitParagraphs: текст без переносов — один абзац", () => {
-  expect(splitParagraphs("Один абзац без переносов.")).toEqual(["Один абзац без переносов."]);
-});
-
-test("splitParagraphs: терминатор с закрывающей кавычкой — граница", () => {
-  expect(splitParagraphs("Кончилось!»\nНовое")).toEqual(["Кончилось!»", "Новое"]);
-});
-
-test("splitParagraphs: пустые фрагменты отбрасываются", () => {
-  expect(splitParagraphs("а.\n\nб")).toEqual(["а.", "б"]);
-});
-
-test("splitParagraphs: пустая строка — пустой список", () => {
-  expect(splitParagraphs("")).toEqual([]);
-});
-
 const MULTI_PARA = {
   answer: "Ответ с многоабзацным источником.",
   sources: [
@@ -261,6 +237,8 @@ test("панель: PDF-перенос склеен в один абзац", asy
   await user.click(await screen.findByText(/book\.pdf · стр\. 6/));
   const panel = screen.getByTestId("source-panel");
   expect(within(panel).getByText("руководства данными в организации.")).toBeInTheDocument();
+  // ровно один абзац: сломанная склейка дала бы два <p>
+  expect(panel.querySelectorAll("p.leading-relaxed")).toHaveLength(1);
 });
 
 test("панель: table-источник сохраняет переносы (pre-wrap)", async () => {
