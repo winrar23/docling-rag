@@ -184,6 +184,65 @@ def test_process_one_job_passes_ocr_params():
     assert jobs.get(job["id"])["status"] == "done"
 
 
+def test_process_one_job_passes_metadata_extractor():
+    jobs = InMemoryJobs()
+    jobs.create("/uploads/b.pdf", "b.pdf")
+    job = jobs.claim_next()
+    deps = WorkerDeps(parser=object(), embedder=object(), storage=object(),
+                      registry=object(), embedding_model="m",
+                      metadata_extractor="EXTRACTOR")
+    seen = {}
+
+    def fake_index(files, *args, **kwargs):
+        seen.update(kwargs)
+        return IndexReport(chunks_added=3, files_ok=1)
+
+    process_one_job(jobs, deps, job, index_fn=fake_index)
+    assert seen["metadata_extractor"] == "EXTRACTOR"
+    assert "title" not in seen and "topic" not in seen and "tags" not in seen
+
+
+def test_process_one_job_records_warning():
+    jobs = InMemoryJobs()
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
+    job = jobs.claim_next()
+
+    def fake_index(files, *args, **kwargs):
+        return IndexReport(chunks_added=3, files_ok=1,
+                           warnings=[("/uploads/b.pdf", "метаданные не извлечены: X")])
+
+    process_one_job(jobs, _deps(), job, index_fn=fake_index)
+    j = jobs.get(jid)
+    assert j["status"] == "done"
+    assert "метаданные не извлечены" in j["warning"]
+
+
+def test_process_one_job_no_warning_when_clean():
+    jobs = InMemoryJobs()
+    jid = jobs.create("/uploads/b.pdf", "b.pdf")
+    job = jobs.claim_next()
+    process_one_job(jobs, _deps(), job,
+                    index_fn=lambda *a, **k: IndexReport(chunks_added=3, files_ok=1))
+    assert jobs.get(jid)["warning"] is None
+
+
+def test_build_deps_builds_metadata_extractor(monkeypatch):
+    import docling_rag.worker.__main__ as wmain
+
+    monkeypatch.setattr(wmain, "Parser", lambda: "P")
+    monkeypatch.setattr(wmain, "get_embedder", lambda cfg: "E")
+    monkeypatch.setattr(wmain, "DBStorage", lambda dsn: "S")
+    monkeypatch.setattr(wmain, "DBRegistry", lambda dsn: "R")
+
+    base = {"database_url": "postgresql://x", "embedding_model": "m",
+            "chunk_max_tokens": 256, "llm_model": "lm", "llm_base_url": "http://x",
+            "llm_api_key": "k"}
+    deps_on = wmain.build_deps({**base, "auto_metadata": True})
+    assert deps_on.metadata_extractor is not None
+    deps_off = wmain.build_deps({**base, "auto_metadata": False})
+    assert deps_off.metadata_extractor is None
+
+
 def test_process_one_job_ocr_defaults_for_legacy_jobs():
     """Старые джобы без ключей ocr — дефолты auto/en (job.get)."""
     jobs = InMemoryJobs()

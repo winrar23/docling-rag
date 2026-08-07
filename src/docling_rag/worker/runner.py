@@ -28,6 +28,7 @@ class WorkerDeps:
     registry: DocumentRegistryBackend
     embedding_model: str
     chunk_max_tokens: int = 512
+    metadata_extractor: object | None = None
 
 
 def make_progress(jobs: JobBackend, job_id: str):
@@ -66,8 +67,8 @@ def process_one_job(jobs: JobBackend, deps: WorkerDeps, job: dict, index_fn=inde
         report = index_fn(
             [Path(job["source_file"])], deps.parser, deps.embedder, deps.storage, deps.registry,
             embedding_model=deps.embedding_model, chunk_max_tokens=deps.chunk_max_tokens,
-            title=None, topic=None, tags=(),
             ocr=job.get("ocr", "auto"), ocr_lang=job.get("ocr_lang", "en"),
+            metadata_extractor=deps.metadata_extractor,
             on_progress=make_progress(jobs, job_id),
         )
         if report.files_failed or report.chunks_added == 0:
@@ -75,6 +76,9 @@ def process_one_job(jobs: JobBackend, deps: WorkerDeps, job: dict, index_fn=inde
             jobs.fail(job_id, msg)
         else:
             jobs.complete(job_id, report.chunks_added)
+            if report.warnings:
+                # не-фатальный сбой шага metadata — фиксируем в джобе
+                jobs.set_warning(job_id, "; ".join(w for _, w in report.warnings))
     except EmbedServiceUnavailableError:
         # Транзиентный отказ embed-сервиса (restart: unless-stopped может временно
         # его уронить) — postgres-то жив, терминальный fail тут неуместен. Джобу
