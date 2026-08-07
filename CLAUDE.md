@@ -47,7 +47,7 @@ curl -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' \
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,agent,api]"
 
-python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 269 passed, 49 deselected (герметичны, postgres НЕ нужен)
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 270 passed, 49 deselected (герметичны, postgres НЕ нужен)
 docker compose up -d postgres                                # прекондишн для integration
 python3 -m pytest tests/ -m integration                      # 48 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 
