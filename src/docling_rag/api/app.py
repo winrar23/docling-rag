@@ -9,7 +9,7 @@ from typing import Literal
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from docling_rag.cli.config_loader import load_config
 from docling_rag.core.embedder import get_embedder
@@ -255,9 +255,6 @@ def _save_upload(src, dest: str, max_bytes: int) -> None:
 @app.post("/documents", status_code=202)
 def create_document(  # sync def: FastAPI уводит в threadpool — файловый и БД I/O не блокируют event loop
     file: UploadFile = File(...),
-    title: str | None = Form(None),
-    topic: str | None = Form(None),
-    tags: list[str] = Form(default=[]),
     # Literal-дубликаты OCR_MODES/OCR_LANGS (core/parser.py) — FastAPI требует литеральный тип; менять синхронно
     ocr: Literal["auto", "on", "off"] = Form("auto"),
     ocr_lang: Literal["en", "ru"] = Form("en"),
@@ -319,7 +316,8 @@ def _document_card(source: str, entry: dict, storage: StorageBackend, jobs: JobB
     job = jobs.find_latest_by_source(source)
     return {
         "id": entry["id"], "source_file": source,
-        "title": entry["title"], "topic": entry["topic"], "tags": entry["tags"],
+        "title": entry["title"], "author": entry["author"],
+        "topic": entry["topic"], "tags": entry["tags"],
         "added_at": entry["added_at"],
         "chunks": storage.count_by_source(source),
         "indexing": {"status": job["status"], "job_id": job["id"]} if job else None,
@@ -375,6 +373,37 @@ def delete_document(doc_id: str,
         except OSError as e:  # истина — в БД; файл не критичен
             print(f"предупреждение: файл не удалён: {e}", file=sys.stderr)
     return {"deleted": entry["title"] or source, "chunks": chunks, "file_removed": file_removed}
+
+
+class DocumentPatch(BaseModel):
+    """PATCH /documents/{id}: exclude_unset — отсутствующий ключ поле не трогает, null очищает."""
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = None
+    author: str | None = None
+    topic: str | None = None
+    tags: list[str] | None = None
+
+
+@app.patch("/documents/{doc_id}")
+def patch_document(doc_id: str, patch: DocumentPatch,
+                   registry: DocumentRegistryBackend = Depends(get_registry),
+                   storage: StorageBackend = Depends(get_storage),
+                   jobs: JobBackend = Depends(get_jobs)) -> dict:
+    found = registry.get_by_id(doc_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    source, _ = found
+
+    active = jobs.find_active_by_source(source)
+    if active is not None:  # иначе воркер затёр бы правку свежими авто-значениями
+        raise HTTPException(status_code=409,
+                            detail={"message": "Идёт индексация", "job_id": active["id"]})
+
+    fields = patch.model_dump(exclude_unset=True)
+    entry = registry.update_metadata(source, fields)
+    if entry is None:  # гонка: документ удалён между get_by_id и update
+        raise HTTPException(status_code=404, detail="Документ не найден")
+    return _document_card(source, entry, storage, jobs)
 
 
 # --- SPA-статика (этап 4-D) ------------------------------------------------

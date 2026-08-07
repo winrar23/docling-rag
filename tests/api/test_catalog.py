@@ -21,7 +21,7 @@ def client():
 
 
 def _seed_doc(registry, storage, source="/uploads/b.pdf", title="B", chunks=2):
-    registry.upsert(source, title, "sys", ["arch"])
+    registry.upsert(source, title, "sys", ["arch"], author="Автор А.")
     storage.append(
         [
             Chunk(text=f"c{i}", source_file=source, chunk_id=i,
@@ -43,6 +43,7 @@ def test_list_documents_card_shape(client):
     card = body[0]
     assert card["id"] and card["source_file"] == "/uploads/b.pdf"
     assert card["title"] == "B" and card["tags"] == ["arch"]
+    assert card["author"] == "Автор А."
     assert card["chunks"] == 2
     assert card["indexing"] == {"status": "done", "job_id": jid}
 

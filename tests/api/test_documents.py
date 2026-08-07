@@ -27,7 +27,6 @@ def test_post_documents_accepts_pdf_returns_202(client):
     resp = c.post(
         "/documents",
         files={"file": ("book.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
-        data={"title": "T", "topic": "sys", "tags": ["arch", "data"]},
     )
     assert resp.status_code == 202
     body = resp.json()
@@ -35,6 +34,19 @@ def test_post_documents_accepts_pdf_returns_202(client):
     job = jobs.get(body["job_id"])
     assert job["original_name"] == "book.pdf"
     assert (uploads / "book.pdf").read_bytes() == b"%PDF-1.4 fake"
+
+
+def test_upload_ignores_removed_metadata_fields(client):
+    """Форма больше не принимает title/topic/tags — лишние поля просто игнорируются FastAPI."""
+    c, jobs, _ = client
+    resp = c.post(
+        "/documents",
+        files={"file": ("b.md", io.BytesIO(b"# x"), "text/markdown")},
+        data={"title": "T", "topic": "sys", "tags": ["arch"]},
+    )
+    assert resp.status_code == 202  # не 422: неизвестные form-поля игнорируются
+    job = jobs.get(resp.json()["job_id"])
+    assert "title" not in job and "topic" not in job and "tags" not in job
 
 
 def test_post_documents_rejects_bad_extension_400(client):
