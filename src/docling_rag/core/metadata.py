@@ -29,7 +29,8 @@ _INSTRUCTIONS = (
     "- author: автор(ы) как в книге; несколько — одной строкой через запятую; "
     "null, если не указаны.\n"
     "- topic: одна короткая тема на русском, в нижнем регистре.\n"
-    "- tags: 1-5 коротких тегов на русском, в нижнем регистре.\n"
+    "- tags: 1-5 коротких тегов в нижнем регистре; язык — как у существующих тегов, "
+    "если существующих нет — на русском.\n"
     "Если в списке существующих тем/тегов есть подходящие — используй ИХ; "
     "новые придумывай только когда ничего не подошло.\n"
     "Не выдумывай: бери только то, что подтверждается текстом."
@@ -61,16 +62,21 @@ def _build_prompt(snippet: str, known_topics: Sequence[str], known_tags: Sequenc
     )
 
 
+_NULL_STRINGS = {"null", "none"}  # LLM пишет их строкой вместо JSON null (qwen3.6, 2026-08-07)
+
+
 def _clean(meta: DocMeta) -> DocMeta:
-    """Нормализация: strip, пустые строки -> None, теги lowercase/уникальные, максимум 5."""
+    """Нормализация: strip, пустые/«null»-строки -> None, теги lowercase/уникальные, максимум 5."""
     def norm(value: str | None) -> str | None:
         value = (value or "").strip()
+        if value.lower() in _NULL_STRINGS:
+            return None
         return value or None
 
     tags: list[str] = []
     for tag in meta.tags:
         tag = tag.strip().lower()
-        if tag and tag not in tags:
+        if tag and tag not in _NULL_STRINGS and tag not in tags:
             tags.append(tag)
     topic = norm(meta.topic)
     return DocMeta(title=norm(meta.title), author=norm(meta.author),

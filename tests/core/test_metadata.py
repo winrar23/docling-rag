@@ -71,6 +71,17 @@ def test_clean_normalizes_output():
     assert meta.tags == ["postgres", "a", "b", "c", "d"]  # lowercase, дедуп, максимум 5
 
 
+def test_clean_maps_null_strings_to_none():
+    """LLM иногда пишет строку "null"/"none" вместо JSON null (qwen3.6, живая приёмка 2026-08-07)."""
+    from docling_rag.core.metadata import DocMeta, _clean
+
+    meta = _clean(DocMeta(title="null", author=" None ", topic="NULL", tags=["null", "Data"]))
+    assert meta.title is None
+    assert meta.author is None
+    assert meta.topic is None
+    assert meta.tags == ["data"]
+
+
 def test_get_metadata_extractor_disabled_returns_none():
     from docling_rag.core.metadata import get_metadata_extractor
 
