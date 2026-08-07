@@ -11,3 +11,4 @@ llm_api_key: "lm-studio"
 llm_model: "local-model"
 agent_top_k: 5
 llm_timeout_sec: 120
+auto_metadata: true  # авто-извлечение метаданных LLM'ом при индексации (LM Studio на хосте)

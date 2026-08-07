@@ -3,7 +3,7 @@
 CLI-утилита для семантического поиска по технической документации на базе Docling.
 RAG-система: Docling → chunking → Sentence Transformers → PostgreSQL+pgvector (HNSW cosine search).
 
-**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). **Этап 4-C (chat-API)** завершён: `POST /chat` (JSON без стриминга, sources из tool-вызовов, история от клиента, лог агентских поисков — TODO п.5 закрыт), `instructions=` вместо `system_prompt=` (переживает message_history), `llm_timeout_sec`. **Авто-OCR + ocr_lang (en/ru)** завершены: `ocr: auto|on|off` (дефолт auto) + `ocr_lang: en|ru` (дефолт en) во всём тракте — CLI `add --ocr/--ocr-lang` → `POST /documents` form-поля → `jobs.ocr/ocr_lang` → worker → `Parser.parse`; детект текстового слоя pypdfium2 (`_has_text_layer`), кириллица через RapidOCR torch cyrillic-модель (gate: 82.6% слов на синтетическом скане). **Этап 4-D (веб-UI)** завершён — этап 4 закрыт целиком: React SPA (Vite+TS+Tailwind+shadcn/ui, TanStack Query, без роутера) поверх REST API, раздаётся api-сервисом с `:8000/` (`mount_static`), собирается frontend-стадией Dockerfile; FE-тесты Vitest+RTL+msw. 241 fast + 44 integration + 1 slow python-тест + 46 FE-тестов, все зелёные. Пост-4D: редизайн чата (пузыри, композер-капсула, выезжающая панель источника с текстом фрагмента — поле text в sources /chat) + ребрендинг UI → Polka (логотип, title, favicon), анимация панели 200мс; панель источника v2 — ширина 48rem, абзацы через splitParagraphs (эвристика границ предложений), element_type в sources /chat (таблицы/код остаются pre-wrap).
+**Статус:** MVP + document metadata + hybrid chunking + pydantic-ai agent реализованы; stage-0 рефакторинг (src-layout, идемпотентный add, exit-коды, Protocol-типизация, композируемый agent) завершён; v2 этап 1 (Docker) завершён — docker compose (postgres + api + cli), env-configurable volumes; v2 этап 2: открывающие коммиты (пины torch==2.13.0/torchvision==0.28.0 cpu, docling==2.113.0, pydantic-ai>=2.0,<3, split deps-слоя, пре-бейк RapidOCR, общий образ `docling-rag:local`) + **pgvector-миграция**: хранилище postgres-only (`DBStorage`/`DBRegistry`), embedding-модель `deepvk/USER-bge-m3` (1024d), команда `delete`, лог поиска в таблице `searches` (`DBSearchLog`), CLI стал docker-only; `FileStorage`/`DocRegistry`, флаг `--data-dir`, корневой `config.yaml`, мёртвый `save()` и файловый `log_file` удалены. **Этап 4-A (ingestion API)** + post-merge polish завершены: `POST /documents` (multipart, лимит `max_upload_mb`, стриминг на диск) → таблица `jobs` (postgres как очередь, `DBJobs`) → фоновый `worker`-сервис (claim через SKIP LOCKED, heartbeat, requeue_stale, переживает обрыв pg) → `GET /jobs/{id}`/`GET /jobs` (live-статус, elapsed заморожен у терминальных). **Этап 4-B (read-API + embed-сервис)** завершён: отдельный `embed`-сервис (единственный процесс с моделью USER-bge-m3, HTTP `POST /embed`) + `HTTPEmbedder`/`get_embedder(cfg)`-фактори (embed_url задан → HTTP-клиент, иначе локальная модель; используют cli/worker/api) → `GET /documents`/`GET /documents/{id}` (карточка: chunks + live indexing-статус) → `DELETE /documents/{id}` (запись + chunks + файл, 409 при активной джобе) → `GET /search` (HTTP-обёртка над тем же `run_search`, что CLI/agent, с логом в `searches`) → app-уровневые 503-хендлеры доменных ошибок хранилища/эмбеддера; схема получила `documents.id` (uuid, идемпотентная миграция). **Этап 4-C (chat-API)** завершён: `POST /chat` (JSON без стриминга, sources из tool-вызовов, история от клиента, лог агентских поисков — TODO п.5 закрыт), `instructions=` вместо `system_prompt=` (переживает message_history), `llm_timeout_sec`. **Авто-OCR + ocr_lang (en/ru)** завершены: `ocr: auto|on|off` (дефолт auto) + `ocr_lang: en|ru` (дефолт en) во всём тракте — CLI `add --ocr/--ocr-lang` → `POST /documents` form-поля → `jobs.ocr/ocr_lang` → worker → `Parser.parse`; детект текстового слоя pypdfium2 (`_has_text_layer`), кириллица через RapidOCR torch cyrillic-модель (gate: 82.6% слов на синтетическом скане). **Этап 4-D (веб-UI)** завершён — этап 4 закрыт целиком: React SPA (Vite+TS+Tailwind+shadcn/ui, TanStack Query, без роутера) поверх REST API, раздаётся api-сервисом с `:8000/` (`mount_static`), собирается frontend-стадией Dockerfile; FE-тесты Vitest+RTL+msw. Пост-4D: редизайн чата (пузыри, композер-капсула, выезжающая панель источника с текстом фрагмента — поле text в sources /chat) + ребрендинг UI → Polka (логотип, title, favicon), анимация панели 200мс; панель источника v2 — ширина 48rem, абзацы через splitParagraphs (эвристика границ предложений), element_type в sources /chat (таблицы/код остаются pre-wrap). **Авто-метаданные** завершены: title/author/topic/tags извлекает LLM (один structured-вызов pydantic-ai, `core/metadata.py`) на новом шаге `metadata` конвейера `index_files` (fail-soft: сбой LLM → заглушки title=stem + warning в `jobs.warning`/stderr); поле `author` end-to-end (идемпотентные миграции `documents.author`/`jobs.warning`); ручной ввод метаданных убран из CLI `add` и upload-формы UI; правка — `registry.update_metadata` → `PATCH /documents/{id}` → EditDialog в каталоге; ключ конфига `auto_metadata` (дефолт true, в герметичных тестах false). 269 fast + 48 integration + 1 slow python-тест + 51 FE-тест, все зелёные.
 
 ## Stack
 
@@ -18,7 +18,7 @@ cp .env.example .env   # пути volumes и порты — правь под с
 docker compose up -d --wait postgres embed api worker   # embed :8100/health (модель), api :8000/health
 # Веб-UI: http://localhost:8000/ (SPA раздаётся сервисом api)
 docker compose run --rm cli init                      # DDL: extension + таблицы + HNSW (идемпотентно; повторный init после апгрейда — см. Gotchas)
-docker compose run --rm cli add /books/my-book.pdf --title "My Book" --topic "..." --tag arch
+docker compose run --rm cli add /books/my-book.pdf   # метаданные (title/author/topic/tags) извлечёт LLM
 docker compose run --rm cli add /books/scan-ru.pdf --ocr auto --ocr-lang ru  # авто-детект скана + кириллица
 docker compose run --rm cli search "запрос"           # + --tag/--topic/--top-k
 docker compose run --rm cli list
@@ -29,9 +29,11 @@ docker compose --profile dev up api-dev    # hot-reload API на :8001
 # update <file> — P1, не реализован
 
 # read-API (этап 4-B), пример
-curl -s -X POST http://localhost:8000/documents -F "file=@book.md" -F "title=My Book"  # 202 + job_id
+curl -s -X POST http://localhost:8000/documents -F "file=@book.md"  # 202 + job_id; метаданные извлечёт LLM
 curl -s http://localhost:8000/documents                     # каталог: chunks + indexing.status
 curl -s "http://localhost:8000/search?q=запрос"              # семантический поиск по HTTP
+curl -s -X PATCH http://localhost:8000/documents/<id> -H 'Content-Type: application/json' \
+  -d '{"title": "Новое название"}'                           # правка метаданных (exclude_unset, null очищает)
 curl -s -X DELETE http://localhost:8000/documents/<id>       # {deleted, chunks, file_removed}
 
 # chat-API (этап 4-C), пример
@@ -45,9 +47,9 @@ curl -s -X POST http://localhost:8000/chat -H 'Content-Type: application/json' \
 uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,agent,api]"
 
-python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 241 passed, 45 deselected (герметичны, postgres НЕ нужен)
+python3 -m pytest tests/ -m "not integration and not slow"   # быстрые: 269 passed, 49 deselected (герметичны, postgres НЕ нужен)
 docker compose up -d postgres                                # прекондишн для integration
-python3 -m pytest tests/ -m integration                      # 44 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
+python3 -m pytest tests/ -m integration                      # 48 passed (тест-БД docling_rag_test; первый прогон качает USER-bge-m3 ~2.3 ГБ)
 
 cd frontend && npm install && npm test    # быстрые FE-тесты (Vitest+RTL+msw)
 npm run dev                                # vite :5173, прокси на :8000
@@ -71,10 +73,11 @@ docling-rag/
 │   │   ├── indexer.py    # index_files(): file → parse → chunk → embed → store, per-file error isolation
 │   │   ├── search.py     # run_search() + resolve_allowed_sources() — переиспользуются CLI search, GET /search и agent tool
 │   │   ├── agent.py      # create_agent(model) + build_lmstudio_model(..., timeout_sec=); tool собирает deps.sources и логирует запрос в deps.search_log; требует .[agent]
+│   │   ├── metadata.py   # авто-метаданные: DocMeta, build_snippet (~8k символов), extract_metadata (один structured-вызов LLM), get_metadata_extractor(cfg, registry) фактори; pydantic_ai только lazy
 │   │   ├── protocols.py  # StorageBackend/DocumentRegistryBackend/SearchLogBackend/JobBackend/EmbedderBackend Protocol — в аннотациях (search.py, indexer.py, commands.py, api/app.py)
 │   │   └── errors.py     # StorageError, StorageUnavailableError, StorageSchemaMissingError, UnsupportedFormatError, LLMUnavailableError, EmbedServiceUnavailableError
 │   ├── api/
-│   │   ├── app.py        # FastAPI: GET /health, POST /documents (ingestion), GET /jobs/{id}, GET /jobs, GET/DELETE /documents(/{id}), GET /search, POST /chat; 503-хендлеры доменных ошибок; + mount_static (SPA-статика с '/', монтируется последним); требует .[api]
+│   │   ├── app.py        # FastAPI: GET /health, POST /documents (ingestion), GET /jobs/{id}, GET /jobs, GET/DELETE/PATCH /documents(/{id}), GET /search, POST /chat; 503-хендлеры доменных ошибок; + mount_static (SPA-статика с '/', монтируется последним); требует .[api]
 │   │   └── embed_app.py  # embed-сервис: create_app() грузит USER-bge-m3 блокирующе, POST /embed {texts} -> {embeddings, model, dim}
 │   ├── worker/
 │   │   ├── runner.py     # process_one_job/_Heartbeat/run_loop — фоновая индексация джоб; вне core/ (импортирует storage)
@@ -82,11 +85,11 @@ docling-rag/
 │   └── storage/
 │       ├── db_schema.py     # DDL: CREATE EXTENSION vector + documents(+id uuid) + chunks + searches + jobs + HNSW-индекс; init_schema(dsn), идемпотентно
 │       ├── db_storage.py    # chunks+embeddings в pg (StorageBackend impl); _translate_db_errors psycopg→доменные
-│       ├── db_registry.py   # documents: title/topic/tags/added_at + id (DocumentRegistryBackend impl); get_by_id(doc_id) для REST-адресации
+│       ├── db_registry.py   # documents: title/author/topic/tags/added_at + id (DocumentRegistryBackend impl); get_by_id(doc_id) для REST-адресации; update_metadata (явный SET, PATCH)
 │       ├── db_search_log.py # searches: query/top_score/searched_at (SearchLogBackend impl)
 │       └── db_jobs.py       # jobs: очередь фоновой индексации (JobBackend impl); claim_next через FOR UPDATE SKIP LOCKED
 ├── frontend/                # React SPA (этап 4-D): Vite+TS+Tailwind+shadcn, TanStack Query; src/api (клиент), src/screens/{chat,search,documents}; тесты Vitest+RTL+msw рядом с экранами
-├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 241 fast + 44 integration + 1 slow
+├── tests/                   # tests/core/, tests/storage/, tests/api/, tests/fakes.py, tests/test_*.py — 269 fast + 48 integration + 1 slow
 ├── Dockerfile               # multi-stage: frontend-стадия (node:22, npm ci+build → static) + runtime (python+uv); deps-слой отделён от src, RapidOCR-модели запечены; entrypoint-диспетчер api/embed/test/cli
 ├── compose.yaml             # postgres + embed + api + worker + api-dev (profile dev) + cli (profile cli); DATABASE_URL в environment, bind-mounts из .env
 ├── .env.example             # PGDATA_DIR/HF_CACHE_DIR/UPLOADS_DIR/BOOKS_DIR + порты + POSTGRES_*
@@ -97,7 +100,7 @@ docling-rag/
 
 Дефолты конфига живут в коде (`cli/config_loader.py::_DEFAULTS`) — репозиторного `config.yaml` НЕТ (удалён: был побайтовым дублем дефолтов и молча их перекрывал). Свой `config.yaml` в cwd или `--config PATH` опциональны.
 
-Схема БД (`db_schema.py`): `documents(source_file PK, id uuid UNIQUE, title, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags, status queued|running|done|failed, step, chunks_total/done, error, attempts, created/started/updated/finished_at, ocr ('auto'|'on'|'off'), ocr_lang ('en'|'ru'))` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`. `ocr`/`ocr_lang` добавлены идемпотентной миграцией (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ... DEFAULT`), legacy-джобы читаются как `auto`/`en`. `documents.id` (uuid, `gen_random_uuid()`) + `documents_id_key` (unique index) добавлены этапом 4-B идемпотентной миграцией внутри того же DDL (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`) — `source_file` остаётся PK, FK-цепочка не меняется, `id` только для REST-адресации карточек.
+Схема БД (`db_schema.py`): `documents(source_file PK, id uuid UNIQUE, title, author, topic, tags text[], added_at)` ← `chunks(id, source_file FK ON DELETE CASCADE, chunk_id, page_number, text, headings jsonb, element_type, embedding vector(1024))` + `chunks_embedding_hnsw` (hnsw, `vector_cosine_ops`); `searches(id, query, top_score, searched_at)` — независимая, без FK на documents (запрос переживает удаление документа); `jobs(id uuid PK, source_file, original_name, title/topic/tags (legacy, не заполняются с фичи авто-метаданных), status queued|running|done|failed, step, chunks_total/done, error, warning, attempts, created/started/updated/finished_at, ocr ('auto'|'on'|'off'), ocr_lang ('en'|'ru'))` — очередь ingestion, без FK (история переживает удаление документа); `jobs.source_file` резолвлен и равен `documents.source_file`. `ocr`/`ocr_lang` добавлены идемпотентной миграцией (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS ... DEFAULT`), legacy-джобы читаются как `auto`/`en`. `documents.id` (uuid, `gen_random_uuid()`) + `documents_id_key` (unique index) добавлены этапом 4-B идемпотентной миграцией внутри того же DDL (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`) — `source_file` остаётся PK, FK-цепочка не меняется, `id` только для REST-адресации карточек. `documents.author` + `jobs.warning` добавлены фичей авто-метаданных тем же паттерном идемпотентной миграции (применяется явным `init`).
 
 ## Gotchas
 
@@ -136,7 +139,7 @@ docling-rag/
 - **Герметичный дефолт `database_url` — порт 1** (`tests/conftest.py::_HERMETIC_DEFAULTS`): `postgresql://test:test@127.0.0.1:1/test` — юнит, случайно дошедший до реального соединения, падает быстро и громко. `embedding_model` в герметичных дефолтах — `all-MiniLM-L6-v2` (не тянуть 2.3 ГБ в юнитах)
 - **Integration-тесты — ОТДЕЛЬНАЯ БД `docling_rag_test`**, боевая `docling_rag` не трогается. Фикстуры `db_url` (создаёт БД + схему, `pytest.skip` если postgres недоступен) и `clean_db` (`TRUNCATE documents CASCADE`) живут в `tests/storage/test_db_backends.py` и реэкспортируются в `tests/conftest.py` для e2e
 - **`e2e_config` осознанно переопределяет autouse `hermetic_config`** — зависит от него явно (порядок фикстур), ре-патчит `load_config` ПОСЛЕ герметичного патча на реальную тест-БД + `deepvk/USER-bge-m3`; function-scoped monkeypatch откатывает оба патча в обратном порядке
-- **Счётчики** — 241 fast (45 deselected), 44 integration, 1 slow
+- **Счётчики** — 269 fast (49 deselected), 48 integration, 1 slow, 51 FE
 
 ### CLI-контракты
 
@@ -187,6 +190,17 @@ docling-rag/
 - **Лог агентских поисков** — tool пишет в `deps.search_log` (query агента, не вопрос пользователя; пустая выдача не логируется; отказ лога не роняет run). TODO п.5 закрыт
 - Тесты: `hermetic_search_log` теперь отдаёт лог и агентскому пути CLI `ask`; API-тесты чата — `dependency_overrides[get_chat_model] = lambda: TestModel()`
 
+### Авто-метаданные
+
+- **Извлечение — один structured-вызов LLM** (`core/metadata.py::extract_metadata`, `Agent(model, output_type=DocMeta, instructions=...)`) по первым ~8000 символов чанков (`build_snippet`) + словарь существующих тем/тегов из registry как подсказка; встроенные метаданные файла (PDF Info) НЕ используются — обычно мусор. `_clean` нормализует: strip, пустые строки → None, topic/теги lowercase, дедуп, максимум 5 тегов
+- **Fail-soft: сбой экстрактора НЕ роняет индексацию** — `index_files` ловит любые исключения extractor'а (кроме инфраструктурных `StorageUnavailableError`/`StorageSchemaMissingError` — те re-raise), пишет `(source, "метаданные не извлечены: ...")` в `report.warnings` и ставит заглушки: title = stem имени файла, остальное None/[]. CLI печатает предупреждение в stderr (exit-код не меняется), worker после `complete` пишет `jobs.set_warning`
+- **`get_metadata_extractor(cfg, registry)` — фактори по паттерну `get_embedder`** — `auto_metadata: false` → None (шаг metadata пропускается и в прогрессе не репортится); closure лениво импортирует `core.agent`/pydantic_ai — ошибки extras всплывают при ВЫЗОВЕ и попадают в fail-soft, CLI/worker без `.[agent]` не падают на старте
+- **Порядок шагов конвейера: `parsing → chunking → metadata → embedding → storing`** — metadata до эмбеддинга (не после storing), чтобы карточка была готова вместе с документом
+- **`--title/--topic/--tag` удалены из `cli add`; form-поля `title/topic/tags` удалены из `POST /documents`** — лишние form-поля FastAPI игнорирует (202, не 422). `jobs.title/topic/tags` — legacy-колонки, не заполняются (в job-dict их больше нет)
+- **Правка метаданных — `PATCH /documents/{id}`** (`DocumentPatch`, `extra="forbid"`, exclude_unset: отсутствующий ключ поле не трогает, null очищает, `tags: null` → `[]`) → `registry.update_metadata` (явный SET, НЕ COALESCE-upsert индексатора); 409 при активной джобе (иначе воркер затёр бы правку), 404, 422 на неизвестные ключи. UI — EditDialog в каталоге
+- **`auto_metadata` в герметичных тест-дефолтах — False** (`tests/conftest.py::_HERMETIC_DEFAULTS`) — юниты не зовут LLM; юниты `core/metadata.py` — на pydantic-ai `TestModel(custom_output_args=...)` без сети
+- **Повторный `docker compose run --rm cli init` после апгрейда** — миграции `documents.author`/`jobs.warning` идемпотентны, но применяются только явным `init` (паттерн `documents.id` из 4-B)
+
 ### Веб-UI (этап 4-D)
 
 - **Все три экрана всегда смонтированы, неактивные скрыты `hidden`** — переключение разделов не теряет историю чата/формы; на этом контракте тест App.test.tsx
@@ -203,7 +217,7 @@ docling-rag/
 - **Entrypoint-диспетчер образа** — `api` → uvicorn :8000, `embed` → `uvicorn --factory embed_app:create_app` :8100, `test` → pytest, иначе → CLI `docling-rag`. Конфиг контейнера запечён в `/app/config.yaml` (`docker/config.container.yaml`)
 - **torch И torchvision в образе — только CPU-индекс** — `uv pip install --system torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cpu` ДО установки пакета, иначе linux-wheel притянет CUDA (~4 ГБ). `torchvision` добавлен намеренно — PyPI-колесо бинарно несовместимо с CPU-сборкой torch и падает в рантайме (`RuntimeError: operator torchvision::nms does not exist`); оба пакета — с одного CPU-индекса одной командой. Версии запинены; при осознанном апгрейде менять обе разом и проверять контейнерный тест-прогон. Дрейф ловится assert-слоем сразу после deps-установки
 - **Пре-бейк RapidOCR-моделей в образе** — rapidocr работает на torch-движке (onnxruntime не ставится) и качает ~16 МБ .pth-моделей при первом парсе PDF; Dockerfile конструирует `RapidOcrModel(... backend='torch')` на этапе сборки. Внутренний импорт `docling.models.stages.ocr.rapid_ocr_model` защищён пином `docling==2.113.0` — апгрейд docling осознанный (пин + ребилд + контейнерный прогон)
-- **api теперь покрывает ingestion + read-API + chat-API** — `GET /health`, `POST /documents`, `GET /jobs(/{id})`, `GET/DELETE /documents(/{id})`, `GET /search`, `POST /chat`; веб-UI раздаётся тем же сервисом с `/` (`mount_static`, этап 4-D — завершён)
+- **api теперь покрывает ingestion + read-API + chat-API** — `GET /health`, `POST /documents`, `GET /jobs(/{id})`, `GET/DELETE/PATCH /documents(/{id})`, `GET /search`, `POST /chat`; веб-UI раздаётся тем же сервисом с `/` (`mount_static`, этап 4-D — завершён)
 - **OCR-кириллица поддержана через `ocr_lang=ru`** — bundled-маппинг lang в docling-обёртке знает только english/latin/chinese, поэтому кириллица идёт в обход, сырыми `rapidocr_params={"Rec.lang_type": "cyrillic"}` (`RapidOcrOptions(backend="torch", ...)`); модель `cyrillic_PP-OCRv3_rec_mobile.pth` (8.6 МБ, modelscope) пре-бейкнута в образ (Dockerfile, как и остальные RapidOCR-модели). Ограничение — компактная mobile-модель, рассчитана на печатный текст; gate-прогон на синтетическом русском скане дал 82.6% распознанных слов при нормальной вёрстке (переплотнённая, 70px межстрочный — 69.6%, mobile cls-модель чувствительна к плотной вёрстке)
 
 ## Non-Goals
