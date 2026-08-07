@@ -252,3 +252,24 @@ test("панель: table-источник сохраняет переносы (
   expect(el.className).toContain("whitespace-pre-wrap");
   expect(el.textContent).toContain("\n");
 });
+
+test("закрытая панель источника inert, открытая — нет", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  expect(screen.getByTestId("source-panel")).toHaveAttribute("inert");
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/dwh-book\.pdf · стр\. 87/));
+  expect(screen.getByTestId("source-panel")).not.toHaveAttribute("inert");
+});
+
+test("Escape закрывает открытую панель", async () => {
+  server.use(http.post("/chat", () => HttpResponse.json(ANSWER)));
+  renderWithClient(<ChatScreen />);
+  const user = userEvent.setup();
+  await sendQuestion(user);
+  await user.click(await screen.findByText(/dwh-book\.pdf · стр\. 87/));
+  expect(screen.getByTestId("source-panel").className).toContain("translate-x-0");
+  await user.keyboard("{Escape}");
+  expect(screen.getByTestId("source-panel").className).toContain("translate-x-full");
+});

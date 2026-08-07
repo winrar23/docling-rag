@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { ArrowUp, Eraser, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -79,6 +79,24 @@ export default function ChatScreen() {
     if (switchTimer.current) clearTimeout(switchTimer.current);
     setSourceOpen(false);
   };
+
+  // таймер подмены источника не должен стрелять после unmount
+  useEffect(() => () => {
+    if (switchTimer.current) clearTimeout(switchTimer.current);
+  }, []);
+
+  // Escape закрывает открытую панель; слушатель живёт только пока она открыта
+  useEffect(() => {
+    if (!sourceOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (switchTimer.current) clearTimeout(switchTimer.current);
+        setSourceOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sourceOpen]);
 
   const chat = useMutation({
     mutationFn: ({ message, history }: { message: string; history: ChatTurn[] }) =>
@@ -163,6 +181,7 @@ export default function ChatScreen() {
       <aside
         aria-label="Источник"
         data-testid="source-panel"
+        inert={!sourceOpen}
         onClick={(e) => e.stopPropagation()}
         className={`fixed inset-y-0 right-0 z-40 flex w-[48rem] max-w-full flex-col border-l bg-background shadow-lg transition-transform duration-200 ${
           sourceOpen ? "translate-x-0" : "translate-x-full"
